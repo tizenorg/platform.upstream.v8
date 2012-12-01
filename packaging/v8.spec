@@ -17,7 +17,7 @@ ExclusiveArch:  %{ix86} x86_64 %arm
 %global sobuild `echo %{version} | cut -f3 -d'.'`
 %global sover %{somajor}.%{sominor}.%{sobuild}
 
-%ifarch i586
+%ifarch i586 i686 
 %global target ia32
 %endif
 %ifarch x86_64
