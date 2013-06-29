@@ -6,6 +6,7 @@ License:        BSD-3-Clause
 Group:          System/Libraries
 Url:            http://code.google.com/p/v8
 Source0:        %{name}.%{version}.tar.bz2
+Source1001: 	v8.manifest
 BuildRequires:  gcc-c++
 BuildRequires:  lzma
 BuildRequires:  python-devel
@@ -60,6 +61,7 @@ Special Private Development headers for v8.
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 
@@ -89,18 +91,21 @@ popd
 %postun -n libv8 -p /sbin/ldconfig
 
 %files -n libv8
+%manifest %{name}.manifest
 %defattr(-,root,root,-)
 %license LICENSE
 %{_bindir}/d8
 %{_libdir}/*.so.*
 
 %files devel
+%manifest %{name}.manifest
 %defattr(-,root,root,-)
 %{_includedir}/*.h
 %{_libdir}/*.so
 
 
 %files private-headers-devel
+%manifest %{name}.manifest
 %defattr(644,root,root,-)
 %{_includedir}/v8/
 
