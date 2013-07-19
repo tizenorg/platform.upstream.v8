@@ -1,3 +1,6 @@
+* Thu Jul 18 23:56:14 UTC 2013 - tracy.graydon@intel.com
+- Add the .0 to the version in spec to fix build error 
+
 * Fri Nov 30 2012 Anas Nashif <anas.nashif@intel.com> 8418fb6
 - Initial import
 
