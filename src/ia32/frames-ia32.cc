@@ -29,15 +29,21 @@
 
 #if defined(V8_TARGET_ARCH_IA32)
 
-#include "frames-inl.h"
+#include "assembler.h"
+#include "assembler-ia32.h"
+#include "assembler-ia32-inl.h"
+#include "frames.h"
 
 namespace v8 {
 namespace internal {
 
 
-Address ExitFrame::ComputeStackPointer(Address fp) {
-  return Memory::Address_at(fp + ExitFrameConstants::kSPOffset);
-}
+Register JavaScriptFrame::fp_register() { return ebp; }
+Register JavaScriptFrame::context_register() { return esi; }
+
+
+Register StubFailureTrampolineFrame::fp_register() { return ebp; }
+Register StubFailureTrampolineFrame::context_register() { return esi; }
 
 
 } }  // namespace v8::internal

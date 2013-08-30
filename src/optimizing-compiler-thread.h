@@ -29,23 +29,29 @@
 #define V8_OPTIMIZING_COMPILER_THREAD_H_
 
 #include "atomicops.h"
-#include "platform.h"
 #include "flags.h"
+#include "platform.h"
 #include "unbound-queue.h"
 
 namespace v8 {
 namespace internal {
 
-class HGraphBuilder;
+class HOptimizedGraphBuilder;
 class OptimizingCompiler;
+class SharedFunctionInfo;
 
 class OptimizingCompilerThread : public Thread {
  public:
   explicit OptimizingCompilerThread(Isolate *isolate) :
       Thread("OptimizingCompilerThread"),
+#ifdef DEBUG
+      thread_id_(0),
+      thread_id_mutex_(OS::CreateMutex()),
+#endif
       isolate_(isolate),
       stop_semaphore_(OS::CreateSemaphore(0)),
       input_queue_semaphore_(OS::CreateSemaphore(0)),
+      install_mutex_(OS::CreateMutex()),
       time_spent_compiling_(0),
       time_spent_total_(0) {
     NoBarrier_Store(&stop_thread_, static_cast<AtomicWord>(false));
@@ -54,6 +60,7 @@ class OptimizingCompilerThread : public Thread {
 
   void Run();
   void Stop();
+  void CompileNext();
   void QueueForOptimization(OptimizingCompiler* optimizing_compiler);
   void InstallOptimizedFunctions();
 
@@ -81,19 +88,21 @@ class OptimizingCompilerThread : public Thread {
   }
 
  private:
+#ifdef DEBUG
+  int thread_id_;
+  Mutex* thread_id_mutex_;
+#endif
+
   Isolate* isolate_;
   Semaphore* stop_semaphore_;
   Semaphore* input_queue_semaphore_;
   UnboundQueue<OptimizingCompiler*> input_queue_;
   UnboundQueue<OptimizingCompiler*> output_queue_;
+  Mutex* install_mutex_;
   volatile AtomicWord stop_thread_;
   volatile Atomic32 queue_length_;
   int64_t time_spent_compiling_;
   int64_t time_spent_total_;
-
-#ifdef DEBUG
-  int thread_id_;
-#endif
 };
 
 } }  // namespace v8::internal

@@ -17,12 +17,12 @@ action__sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_outputs := $(obj
 
 ### Rules for action "js2c_experimental":
 quiet_cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_experimental = ACTION _sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_experimental $@
-cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_experimental = LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; cd v8/tools/gyp; mkdir -p $(obj)/gen; python ../../tools/js2c.py "$(obj)/gen/experimental-libraries.cc" EXPERIMENTAL off ../../src/macros.py ../../src/proxy.js ../../src/collection.js
+cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_experimental = LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; cd v8/tools/gyp; mkdir -p $(obj)/gen; python ../../tools/js2c.py "$(obj)/gen/experimental-libraries.cc" EXPERIMENTAL off ../../src/macros.py ../../src/symbol.js ../../src/proxy.js ../../src/collection.js ../../src/object-observe.js ../../src/typedarray.js ../../src/generator.js
 
 $(obj)/gen/experimental-libraries.cc: obj := $(abs_obj)
 $(obj)/gen/experimental-libraries.cc: builddir := $(abs_builddir)
 $(obj)/gen/experimental-libraries.cc: TOOLSET := $(TOOLSET)
-$(obj)/gen/experimental-libraries.cc: v8/tools/js2c.py v8/src/macros.py v8/src/proxy.js v8/src/collection.js FORCE_DO_CMD
+$(obj)/gen/experimental-libraries.cc: v8/tools/js2c.py v8/src/macros.py v8/src/symbol.js v8/src/proxy.js v8/src/collection.js v8/src/object-observe.js v8/src/typedarray.js v8/src/generator.js FORCE_DO_CMD
 	$(call do_cmd,_sources_chromium_src_v8_tools_gyp_v8_gyp_js2c_host_js2c_experimental)
 
 all_deps += $(obj)/gen/experimental-libraries.cc

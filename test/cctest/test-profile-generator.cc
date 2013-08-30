@@ -1,4 +1,29 @@
 // Copyright 2010 the V8 project authors. All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+//       copyright notice, this list of conditions and the following
+//       disclaimer in the documentation and/or other materials provided
+//       with the distribution.
+//     * Neither the name of Google Inc. nor the names of its
+//       contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 // Tests of profiles generator and utilities.
 
@@ -36,7 +61,7 @@ class TokenEnumeratorTester {
 TEST(TokenEnumerator) {
   TokenEnumerator te;
   CHECK_EQ(TokenEnumerator::kNoSecurityToken, te.GetTokenId(NULL));
-  v8::HandleScope hs;
+  v8::HandleScope hs(v8::Isolate::GetCurrent());
   v8::Local<v8::String> token1(v8::String::New("1x"));
   CHECK_EQ(0, te.GetTokenId(*v8::Utils::OpenHandle(*token1)));
   CHECK_EQ(0, te.GetTokenId(*v8::Utils::OpenHandle(*token1)));
@@ -45,7 +70,7 @@ TEST(TokenEnumerator) {
   CHECK_EQ(1, te.GetTokenId(*v8::Utils::OpenHandle(*token2)));
   CHECK_EQ(0, te.GetTokenId(*v8::Utils::OpenHandle(*token1)));
   {
-    v8::HandleScope hs;
+    v8::HandleScope hs(v8::Isolate::GetCurrent());
     v8::Local<v8::String> token3(v8::String::New("3x"));
     CHECK_EQ(2, te.GetTokenId(*v8::Utils::OpenHandle(*token3)));
     CHECK_EQ(1, te.GetTokenId(*v8::Utils::OpenHandle(*token2)));
@@ -60,21 +85,19 @@ TEST(TokenEnumerator) {
 
 
 TEST(ProfileNodeFindOrAddChild) {
-  ProfileNode node(NULL, NULL);
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  ProfileTree tree;
+  ProfileNode node(&tree, NULL);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
   ProfileNode* childNode1 = node.FindOrAddChild(&entry1);
   CHECK_NE(NULL, childNode1);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry1));
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
   ProfileNode* childNode2 = node.FindOrAddChild(&entry2);
   CHECK_NE(NULL, childNode2);
   CHECK_NE(childNode1, childNode2);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry1));
   CHECK_EQ(childNode2, node.FindOrAddChild(&entry2));
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
   ProfileNode* childNode3 = node.FindOrAddChild(&entry3);
   CHECK_NE(NULL, childNode3);
   CHECK_NE(childNode1, childNode3);
@@ -88,18 +111,17 @@ TEST(ProfileNodeFindOrAddChild) {
 TEST(ProfileNodeFindOrAddChildForSameFunction) {
   const char* empty = "";
   const char* aaa = "aaa";
-  ProfileNode node(NULL, NULL);
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, empty, aaa, empty, 0,
-                     TokenEnumerator::kNoSecurityToken);
+  ProfileTree tree;
+  ProfileNode node(&tree, NULL);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, empty, aaa);
   ProfileNode* childNode1 = node.FindOrAddChild(&entry1);
   CHECK_NE(NULL, childNode1);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry1));
   // The same function again.
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, empty, aaa, empty, 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, empty, aaa);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry2));
   // Now with a different security token.
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, empty, aaa, empty, 0,
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, empty, aaa,
                    TokenEnumerator::kNoSecurityToken + 1);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry3));
 }
@@ -135,12 +157,9 @@ class ProfileTreeTestHelper {
 }  // namespace
 
 TEST(ProfileTreeAddPathFromStart) {
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
   ProfileTree tree;
   ProfileTreeTestHelper helper(&tree);
   CHECK_EQ(NULL, helper.Walk(&entry1));
@@ -205,12 +224,9 @@ TEST(ProfileTreeAddPathFromStart) {
 
 
 TEST(ProfileTreeAddPathFromEnd) {
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
   ProfileTree tree;
   ProfileTreeTestHelper helper(&tree);
   CHECK_EQ(NULL, helper.Walk(&entry1));
@@ -288,8 +304,7 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CHECK_EQ(1, empty_tree.root()->total_ticks());
   CHECK_EQ(1, empty_tree.root()->self_ticks());
 
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
   CodeEntry* e1_path[] = {&entry1};
   Vector<CodeEntry*> e1_path_vec(
       e1_path, sizeof(e1_path) / sizeof(e1_path[0]));
@@ -310,8 +325,7 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CHECK_EQ(1, node1->total_ticks());
   CHECK_EQ(1, node1->self_ticks());
 
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
   CodeEntry* e1_e2_path[] = {&entry1, &entry2};
   Vector<CodeEntry*> e1_e2_path_vec(
       e1_e2_path, sizeof(e1_e2_path) / sizeof(e1_e2_path[0]));
@@ -346,8 +360,7 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CodeEntry* e2_path[] = {&entry2};
   Vector<CodeEntry*> e2_path_vec(
       e2_path, sizeof(e2_path) / sizeof(e2_path[0]));
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
   CodeEntry* e3_path[] = {&entry3};
   Vector<CodeEntry*> e3_path_vec(
       e3_path, sizeof(e3_path) / sizeof(e3_path[0]));
@@ -405,12 +418,11 @@ TEST(ProfileTreeCalculateTotalTicks) {
 TEST(ProfileTreeFilteredClone) {
   ProfileTree source_tree;
   const int token0 = 0, token1 = 1, token2 = 2;
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0, token0);
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0, token1);
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0, token0);
-  CodeEntry entry4(
-      i::Logger::FUNCTION_TAG, "", "ddd", "", 0,
-      TokenEnumerator::kInheritsSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", token0);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", token1);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", token0);
+  CodeEntry entry4(i::Logger::FUNCTION_TAG, "", "ddd",
+                   TokenEnumerator::kInheritsSecurityToken);
 
   {
     CodeEntry* e1_e2_path[] = {&entry1, &entry2};
@@ -507,14 +519,10 @@ static inline i::Address ToAddress(int n) {
 
 TEST(CodeMapAddCode) {
   CodeMap code_map;
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry4(i::Logger::FUNCTION_TAG, "", "ddd", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
+  CodeEntry entry4(i::Logger::FUNCTION_TAG, "", "ddd");
   code_map.AddCode(ToAddress(0x1500), &entry1, 0x200);
   code_map.AddCode(ToAddress(0x1700), &entry2, 0x100);
   code_map.AddCode(ToAddress(0x1900), &entry3, 0x50);
@@ -541,10 +549,8 @@ TEST(CodeMapAddCode) {
 
 TEST(CodeMapMoveAndDeleteCode) {
   CodeMap code_map;
-  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
-  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa");
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb");
   code_map.AddCode(ToAddress(0x1500), &entry1, 0x200);
   code_map.AddCode(ToAddress(0x1700), &entry2, 0x100);
   CHECK_EQ(&entry1, code_map.FindEntry(ToAddress(0x1500)));
@@ -552,8 +558,7 @@ TEST(CodeMapMoveAndDeleteCode) {
   code_map.MoveCode(ToAddress(0x1500), ToAddress(0x1700));  // Deprecate bbb.
   CHECK_EQ(NULL, code_map.FindEntry(ToAddress(0x1500)));
   CHECK_EQ(&entry1, code_map.FindEntry(ToAddress(0x1700)));
-  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
-                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc");
   code_map.AddCode(ToAddress(0x1750), &entry3, 0x100);
   CHECK_EQ(NULL, code_map.FindEntry(ToAddress(0x1700)));
   CHECK_EQ(&entry3, code_map.FindEntry(ToAddress(0x1750)));
@@ -582,11 +587,11 @@ class TestSetup {
 TEST(RecordTickSample) {
   TestSetup test_setup;
   CpuProfilesCollection profiles;
-  profiles.StartProfiling("", 1);
+  profiles.StartProfiling("", 1, false);
   ProfileGenerator generator(&profiles);
-  CodeEntry* entry1 = generator.NewCodeEntry(i::Logger::FUNCTION_TAG, "aaa");
-  CodeEntry* entry2 = generator.NewCodeEntry(i::Logger::FUNCTION_TAG, "bbb");
-  CodeEntry* entry3 = generator.NewCodeEntry(i::Logger::FUNCTION_TAG, "ccc");
+  CodeEntry* entry1 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "aaa");
+  CodeEntry* entry2 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "bbb");
+  CodeEntry* entry3 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "ccc");
   generator.code_map()->AddCode(ToAddress(0x1500), entry1, 0x200);
   generator.code_map()->AddCode(ToAddress(0x1700), entry2, 0x100);
   generator.code_map()->AddCode(ToAddress(0x1900), entry3, 0x50);
@@ -688,6 +693,88 @@ TEST(SampleRateCalculator) {
 }
 
 
+static void CheckNodeIds(ProfileNode* node, int* expectedId) {
+  CHECK_EQ((*expectedId)++, node->id());
+  for (int i = 0; i < node->children()->length(); i++) {
+    CheckNodeIds(node->children()->at(i), expectedId);
+  }
+}
+
+TEST(SampleIds) {
+  TestSetup test_setup;
+  CpuProfilesCollection profiles;
+  profiles.StartProfiling("", 1, true);
+  ProfileGenerator generator(&profiles);
+  CodeEntry* entry1 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "aaa");
+  CodeEntry* entry2 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "bbb");
+  CodeEntry* entry3 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "ccc");
+  generator.code_map()->AddCode(ToAddress(0x1500), entry1, 0x200);
+  generator.code_map()->AddCode(ToAddress(0x1700), entry2, 0x100);
+  generator.code_map()->AddCode(ToAddress(0x1900), entry3, 0x50);
+
+  // We are building the following calls tree:
+  //                    -> aaa #3           - sample1
+  // (root)#1 -> aaa #2 -> bbb #4 -> ccc #5 - sample2
+  //                    -> ccc #6 -> aaa #7 - sample3
+  TickSample sample1;
+  sample1.pc = ToAddress(0x1600);
+  sample1.stack[0] = ToAddress(0x1510);
+  sample1.frames_count = 1;
+  generator.RecordTickSample(sample1);
+  TickSample sample2;
+  sample2.pc = ToAddress(0x1925);
+  sample2.stack[0] = ToAddress(0x1780);
+  sample2.stack[1] = ToAddress(0x10000);  // non-existent.
+  sample2.stack[2] = ToAddress(0x1620);
+  sample2.frames_count = 3;
+  generator.RecordTickSample(sample2);
+  TickSample sample3;
+  sample3.pc = ToAddress(0x1510);
+  sample3.stack[0] = ToAddress(0x1910);
+  sample3.stack[1] = ToAddress(0x1610);
+  sample3.frames_count = 2;
+  generator.RecordTickSample(sample3);
+
+  CpuProfile* profile =
+      profiles.StopProfiling(TokenEnumerator::kNoSecurityToken, "", 1);
+  int nodeId = 1;
+  CheckNodeIds(profile->top_down()->root(), &nodeId);
+  CHECK_EQ(7, nodeId - 1);
+
+  CHECK_EQ(3, profile->samples_count());
+  int expected_id[] = {3, 5, 7};
+  for (int i = 0; i < 3; i++) {
+    CHECK_EQ(expected_id[i], profile->sample(i)->id());
+  }
+}
+
+
+TEST(NoSamples) {
+  TestSetup test_setup;
+  CpuProfilesCollection profiles;
+  profiles.StartProfiling("", 1, false);
+  ProfileGenerator generator(&profiles);
+  CodeEntry* entry1 = profiles.NewCodeEntry(i::Logger::FUNCTION_TAG, "aaa");
+  generator.code_map()->AddCode(ToAddress(0x1500), entry1, 0x200);
+
+  // We are building the following calls tree:
+  // (root)#1 -> aaa #2 -> aaa #3 - sample1
+  TickSample sample1;
+  sample1.pc = ToAddress(0x1600);
+  sample1.stack[0] = ToAddress(0x1510);
+  sample1.frames_count = 1;
+  generator.RecordTickSample(sample1);
+
+  CpuProfile* profile =
+      profiles.StopProfiling(TokenEnumerator::kNoSecurityToken, "", 1);
+  int nodeId = 1;
+  CheckNodeIds(profile->top_down()->root(), &nodeId);
+  CHECK_EQ(3, nodeId - 1);
+
+  CHECK_EQ(0, profile->samples_count());
+}
+
+
 // --- P r o f i l e r   E x t e n s i o n ---
 
 class ProfilerExtension : public v8::Extension {
@@ -695,8 +782,8 @@ class ProfilerExtension : public v8::Extension {
   ProfilerExtension() : v8::Extension("v8/profiler", kSource) { }
   virtual v8::Handle<v8::FunctionTemplate> GetNativeFunction(
       v8::Handle<v8::String> name);
-  static v8::Handle<v8::Value> StartProfiling(const v8::Arguments& args);
-  static v8::Handle<v8::Value> StopProfiling(const v8::Arguments& args);
+  static void StartProfiling(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void StopProfiling(const v8::FunctionCallbackInfo<v8::Value>& args);
  private:
   static const char* kSource;
 };
@@ -719,29 +806,28 @@ v8::Handle<v8::FunctionTemplate> ProfilerExtension::GetNativeFunction(
 }
 
 
-v8::Handle<v8::Value> ProfilerExtension::StartProfiling(
-    const v8::Arguments& args) {
+void ProfilerExtension::StartProfiling(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::CpuProfiler* cpu_profiler = args.GetIsolate()->GetCpuProfiler();
   if (args.Length() > 0)
-    v8::CpuProfiler::StartProfiling(args[0].As<v8::String>());
+    cpu_profiler->StartCpuProfiling(args[0].As<v8::String>());
   else
-    v8::CpuProfiler::StartProfiling(v8::String::New(""));
-  return v8::Undefined();
+    cpu_profiler->StartCpuProfiling(v8::String::New(""));
 }
 
 
-v8::Handle<v8::Value> ProfilerExtension::StopProfiling(
-    const v8::Arguments& args) {
+void ProfilerExtension::StopProfiling(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::CpuProfiler* cpu_profiler = args.GetIsolate()->GetCpuProfiler();
   if (args.Length() > 0)
-    v8::CpuProfiler::StopProfiling(args[0].As<v8::String>());
+    cpu_profiler->StopCpuProfiling(args[0].As<v8::String>());
   else
-    v8::CpuProfiler::StopProfiling(v8::String::New(""));
-  return v8::Undefined();
+    cpu_profiler->StopCpuProfiling(v8::String::New(""));
 }
 
 
 static ProfilerExtension kProfilerExtension;
 v8::DeclareExtension kProfilerExtensionDeclaration(&kProfilerExtension);
-static v8::Persistent<v8::Context> env;
 
 static const ProfileNode* PickChild(const ProfileNode* parent,
                                     const char* name) {
@@ -758,25 +844,23 @@ TEST(RecordStackTraceAtStartProfiling) {
   // don't appear in the stack trace.
   i::FLAG_use_inlining = false;
 
-  if (env.IsEmpty()) {
-    v8::HandleScope scope;
-    const char* extensions[] = { "v8/profiler" };
-    v8::ExtensionConfiguration config(1, extensions);
-    env = v8::Context::New(&config);
-  }
-  v8::HandleScope scope;
-  env->Enter();
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  v8::HandleScope scope(isolate);
+  const char* extensions[] = { "v8/profiler" };
+  v8::ExtensionConfiguration config(1, extensions);
+  v8::Local<v8::Context> context = v8::Context::New(isolate, &config);
+  context->Enter();
 
-  CHECK_EQ(0, CpuProfiler::GetProfilesCount());
+  CpuProfiler* profiler = i::Isolate::Current()->cpu_profiler();
+  CHECK_EQ(0, profiler->GetProfilesCount());
   CompileRun(
       "function c() { startProfiling(); }\n"
       "function b() { c(); }\n"
       "function a() { b(); }\n"
       "a();\n"
       "stopProfiling();");
-  CHECK_EQ(1, CpuProfiler::GetProfilesCount());
-  CpuProfile* profile =
-      CpuProfiler::GetProfile(NULL, 0);
+  CHECK_EQ(1, profiler->GetProfilesCount());
+  CpuProfile* profile = profiler->GetProfile(NULL, 0);
   const ProfileTree* topDown = profile->top_down();
   const ProfileNode* current = topDown->root();
   const_cast<ProfileNode*>(current)->Print(0);
@@ -813,11 +897,12 @@ TEST(Issue51919) {
   for (int i = 0; i < CpuProfilesCollection::kMaxSimultaneousProfiles; ++i) {
     i::Vector<char> title = i::Vector<char>::New(16);
     i::OS::SNPrintF(title, "%d", i);
-    CHECK(collection.StartProfiling(title.start(), i + 1));  // UID must be > 0.
+    // UID must be > 0.
+    CHECK(collection.StartProfiling(title.start(), i + 1, false));
     titles[i] = title.start();
   }
   CHECK(!collection.StartProfiling(
-      "maximum", CpuProfilesCollection::kMaxSimultaneousProfiles + 1));
+      "maximum", CpuProfilesCollection::kMaxSimultaneousProfiles + 1, false));
   for (int i = 0; i < CpuProfilesCollection::kMaxSimultaneousProfiles; ++i)
     i::DeleteArray(titles[i]);
 }

@@ -4,7 +4,9 @@ TOOLSET := host
 TARGET := v8_base
 DEFS_Debug := \
 	'-D_FILE_OFFSET_BITS=64' \
+	'-DUSE_LINUX_BREAKPAD' \
 	'-DCHROMIUM_BUILD' \
+	'-DUSE_DEFAULT_RENDER_THEME=1' \
 	'-DUSE_LIBJPEG_TURBO=1' \
 	'-DUSE_NSS=1' \
 	'-DENABLE_ONE_CLICK_SIGNIN' \
@@ -16,20 +18,20 @@ DEFS_Debug := \
 	'-DENABLE_NOTIFICATIONS' \
 	'-DENABLE_GPU=1' \
 	'-DENABLE_EGLIMAGE=1' \
-	'-DUSE_SKIA=1' \
 	'-DENABLE_TASK_MANAGER=1' \
-	'-DENABLE_WEB_INTENTS=1' \
 	'-DENABLE_EXTENSIONS=1' \
 	'-DENABLE_PLUGIN_INSTALLATION=1' \
-	'-DENABLE_PROTECTOR_SERVICE=1' \
+	'-DENABLE_PLUGINS=1' \
 	'-DENABLE_SESSION_SERVICE=1' \
 	'-DENABLE_THEMES=1' \
 	'-DENABLE_BACKGROUND=1' \
 	'-DENABLE_AUTOMATION=1' \
+	'-DENABLE_GOOGLE_NOW=1' \
+	'-DENABLE_LANGUAGE_DETECTION=1' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_CAPTIVE_PORTAL_DETECTION=1' \
+	'-DENABLE_MANAGED_USERS=1' \
 	'-DENABLE_DEBUGGER_SUPPORT' \
-	'-DENABLE_EXTRA_CHECKS' \
 	'-DV8_TARGET_ARCH_X64' \
 	'-DDYNAMIC_ANNOTATIONS_ENABLED=1' \
 	'-DWTF_USE_DYNAMIC_ANNOTATIONS=1' \
@@ -38,10 +40,13 @@ DEFS_Debug := \
 	'-DENABLE_DISASSEMBLER' \
 	'-DV8_ENABLE_CHECKS' \
 	'-DOBJECT_PRINT' \
-	'-DVERIFY_HEAP'
+	'-DVERIFY_HEAP' \
+	'-DENABLE_EXTRA_CHECKS'
 
 # Flags passed to all source files.
 CFLAGS_Debug := \
+	-fstack-protector \
+	--param=ssp-buffer-size=4 \
 	-pthread \
 	-fno-exceptions \
 	-fno-strict-aliasing \
@@ -74,7 +79,9 @@ INCS_Debug := \
 
 DEFS_Release := \
 	'-D_FILE_OFFSET_BITS=64' \
+	'-DUSE_LINUX_BREAKPAD' \
 	'-DCHROMIUM_BUILD' \
+	'-DUSE_DEFAULT_RENDER_THEME=1' \
 	'-DUSE_LIBJPEG_TURBO=1' \
 	'-DUSE_NSS=1' \
 	'-DENABLE_ONE_CLICK_SIGNIN' \
@@ -86,20 +93,20 @@ DEFS_Release := \
 	'-DENABLE_NOTIFICATIONS' \
 	'-DENABLE_GPU=1' \
 	'-DENABLE_EGLIMAGE=1' \
-	'-DUSE_SKIA=1' \
 	'-DENABLE_TASK_MANAGER=1' \
-	'-DENABLE_WEB_INTENTS=1' \
 	'-DENABLE_EXTENSIONS=1' \
 	'-DENABLE_PLUGIN_INSTALLATION=1' \
-	'-DENABLE_PROTECTOR_SERVICE=1' \
+	'-DENABLE_PLUGINS=1' \
 	'-DENABLE_SESSION_SERVICE=1' \
 	'-DENABLE_THEMES=1' \
 	'-DENABLE_BACKGROUND=1' \
 	'-DENABLE_AUTOMATION=1' \
+	'-DENABLE_GOOGLE_NOW=1' \
+	'-DENABLE_LANGUAGE_DETECTION=1' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_CAPTIVE_PORTAL_DETECTION=1' \
+	'-DENABLE_MANAGED_USERS=1' \
 	'-DENABLE_DEBUGGER_SUPPORT' \
-	'-DENABLE_EXTRA_CHECKS' \
 	'-DV8_TARGET_ARCH_X64' \
 	'-DNDEBUG' \
 	'-DNVALGRIND' \
@@ -107,6 +114,8 @@ DEFS_Release := \
 
 # Flags passed to all source files.
 CFLAGS_Release := \
+	-fstack-protector \
+	--param=ssp-buffer-size=4 \
 	-pthread \
 	-fno-exceptions \
 	-fno-strict-aliasing \
@@ -152,6 +161,7 @@ OBJS := \
 	$(obj).host/$(TARGET)/v8/src/checks.o \
 	$(obj).host/$(TARGET)/v8/src/circular-queue.o \
 	$(obj).host/$(TARGET)/v8/src/code-stubs.o \
+	$(obj).host/$(TARGET)/v8/src/code-stubs-hydrogen.o \
 	$(obj).host/$(TARGET)/v8/src/codegen.o \
 	$(obj).host/$(TARGET)/v8/src/compilation-cache.o \
 	$(obj).host/$(TARGET)/v8/src/compiler.o \
@@ -185,12 +195,12 @@ OBJS := \
 	$(obj).host/$(TARGET)/v8/src/global-handles.o \
 	$(obj).host/$(TARGET)/v8/src/handles.o \
 	$(obj).host/$(TARGET)/v8/src/heap-profiler.o \
+	$(obj).host/$(TARGET)/v8/src/heap-snapshot-generator.o \
 	$(obj).host/$(TARGET)/v8/src/heap.o \
 	$(obj).host/$(TARGET)/v8/src/hydrogen-instructions.o \
 	$(obj).host/$(TARGET)/v8/src/hydrogen.o \
 	$(obj).host/$(TARGET)/v8/src/ic.o \
 	$(obj).host/$(TARGET)/v8/src/incremental-marking.o \
-	$(obj).host/$(TARGET)/v8/src/inspector.o \
 	$(obj).host/$(TARGET)/v8/src/interface.o \
 	$(obj).host/$(TARGET)/v8/src/interpreter-irregexp.o \
 	$(obj).host/$(TARGET)/v8/src/isolate.o \
@@ -198,10 +208,10 @@ OBJS := \
 	$(obj).host/$(TARGET)/v8/src/lithium-allocator.o \
 	$(obj).host/$(TARGET)/v8/src/lithium.o \
 	$(obj).host/$(TARGET)/v8/src/liveedit.o \
-	$(obj).host/$(TARGET)/v8/src/liveobjectlist.o \
 	$(obj).host/$(TARGET)/v8/src/log-utils.o \
 	$(obj).host/$(TARGET)/v8/src/log.o \
 	$(obj).host/$(TARGET)/v8/src/mark-compact.o \
+	$(obj).host/$(TARGET)/v8/src/marking-thread.o \
 	$(obj).host/$(TARGET)/v8/src/messages.o \
 	$(obj).host/$(TARGET)/v8/src/objects-debug.o \
 	$(obj).host/$(TARGET)/v8/src/objects-printer.o \
@@ -235,6 +245,7 @@ OBJS := \
 	$(obj).host/$(TARGET)/v8/src/string-stream.o \
 	$(obj).host/$(TARGET)/v8/src/strtod.o \
 	$(obj).host/$(TARGET)/v8/src/stub-cache.o \
+	$(obj).host/$(TARGET)/v8/src/sweeper-thread.o \
 	$(obj).host/$(TARGET)/v8/src/token.o \
 	$(obj).host/$(TARGET)/v8/src/transitions.o \
 	$(obj).host/$(TARGET)/v8/src/type-info.o \
@@ -293,6 +304,8 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := \
+	-Wl,-z,now \
+	-Wl,-z,relro \
 	-pthread \
 	-Wl,-z,noexecstack \
 	-fPIC \
@@ -301,6 +314,8 @@ LDFLAGS_Debug := \
 	-B$(builddir)/../../third_party/gold
 
 LDFLAGS_Release := \
+	-Wl,-z,now \
+	-Wl,-z,relro \
 	-pthread \
 	-Wl,-z,noexecstack \
 	-fPIC \

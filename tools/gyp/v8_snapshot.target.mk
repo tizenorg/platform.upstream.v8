@@ -4,12 +4,12 @@ TOOLSET := target
 TARGET := v8_snapshot
 ### Rules for action "run_mksnapshot":
 quiet_cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot = ACTION _sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot $@
-cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot = LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; cd v8/tools/gyp; mkdir -p $(obj).$(TOOLSET)/v8_snapshot/geni; "$(builddir)/mksnapshot" --log-snapshot-positions --logfile "$(obj).$(TOOLSET)/v8_snapshot/geni/snapshot.log" "$(obj).$(TOOLSET)/v8_snapshot/geni/snapshot.cc"
+cmd__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot = LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; cd v8/tools/gyp; mkdir -p $(obj).$(TOOLSET)/v8_snapshot/geni; "$(builddir)/mksnapshot.x64" --log-snapshot-positions --logfile "$(obj).$(TOOLSET)/v8_snapshot/geni/snapshot.log" "$(obj).$(TOOLSET)/v8_snapshot/geni/snapshot.cc"
 
 $(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc: obj := $(abs_obj)
 $(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc: builddir := $(abs_builddir)
 $(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc: TOOLSET := $(TOOLSET)
-$(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc: $(builddir)/mksnapshot FORCE_DO_CMD
+$(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc: $(builddir)/mksnapshot.x64 FORCE_DO_CMD
 	$(call do_cmd,_sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot)
 
 all_deps += $(obj).$(TOOLSET)/$(TARGET)/geni/snapshot.cc
@@ -18,9 +18,12 @@ action__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapsh
 
 DEFS_Debug := \
 	'-D_FILE_OFFSET_BITS=64' \
+	'-DUSE_LINUX_BREAKPAD' \
 	'-DCHROMIUM_BUILD' \
+	'-DUSE_DEFAULT_RENDER_THEME=1' \
 	'-DUSE_LIBJPEG_TURBO=1' \
 	'-DUSE_NSS=1' \
+	'-DUSE_X11=1' \
 	'-DENABLE_ONE_CLICK_SIGNIN' \
 	'-DGTK_DISABLE_SINGLE_INCLUDES=1' \
 	'-DENABLE_REMOTING=1' \
@@ -30,20 +33,20 @@ DEFS_Debug := \
 	'-DENABLE_NOTIFICATIONS' \
 	'-DENABLE_GPU=1' \
 	'-DENABLE_EGLIMAGE=1' \
-	'-DUSE_SKIA=1' \
 	'-DENABLE_TASK_MANAGER=1' \
-	'-DENABLE_WEB_INTENTS=1' \
 	'-DENABLE_EXTENSIONS=1' \
 	'-DENABLE_PLUGIN_INSTALLATION=1' \
-	'-DENABLE_PROTECTOR_SERVICE=1' \
+	'-DENABLE_PLUGINS=1' \
 	'-DENABLE_SESSION_SERVICE=1' \
 	'-DENABLE_THEMES=1' \
 	'-DENABLE_BACKGROUND=1' \
 	'-DENABLE_AUTOMATION=1' \
+	'-DENABLE_GOOGLE_NOW=1' \
+	'-DENABLE_LANGUAGE_DETECTION=1' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_CAPTIVE_PORTAL_DETECTION=1' \
+	'-DENABLE_MANAGED_USERS=1' \
 	'-DENABLE_DEBUGGER_SUPPORT' \
-	'-DENABLE_EXTRA_CHECKS' \
 	'-DV8_TARGET_ARCH_X64' \
 	'-DDYNAMIC_ANNOTATIONS_ENABLED=1' \
 	'-DWTF_USE_DYNAMIC_ANNOTATIONS=1' \
@@ -52,10 +55,13 @@ DEFS_Debug := \
 	'-DENABLE_DISASSEMBLER' \
 	'-DV8_ENABLE_CHECKS' \
 	'-DOBJECT_PRINT' \
-	'-DVERIFY_HEAP'
+	'-DVERIFY_HEAP' \
+	'-DENABLE_EXTRA_CHECKS'
 
 # Flags passed to all source files.
 CFLAGS_Debug := \
+	-fstack-protector \
+	--param=ssp-buffer-size=4 \
 	-pthread \
 	-fno-exceptions \
 	-fno-strict-aliasing \
@@ -88,9 +94,12 @@ INCS_Debug := \
 
 DEFS_Release := \
 	'-D_FILE_OFFSET_BITS=64' \
+	'-DUSE_LINUX_BREAKPAD' \
 	'-DCHROMIUM_BUILD' \
+	'-DUSE_DEFAULT_RENDER_THEME=1' \
 	'-DUSE_LIBJPEG_TURBO=1' \
 	'-DUSE_NSS=1' \
+	'-DUSE_X11=1' \
 	'-DENABLE_ONE_CLICK_SIGNIN' \
 	'-DGTK_DISABLE_SINGLE_INCLUDES=1' \
 	'-DENABLE_REMOTING=1' \
@@ -100,20 +109,20 @@ DEFS_Release := \
 	'-DENABLE_NOTIFICATIONS' \
 	'-DENABLE_GPU=1' \
 	'-DENABLE_EGLIMAGE=1' \
-	'-DUSE_SKIA=1' \
 	'-DENABLE_TASK_MANAGER=1' \
-	'-DENABLE_WEB_INTENTS=1' \
 	'-DENABLE_EXTENSIONS=1' \
 	'-DENABLE_PLUGIN_INSTALLATION=1' \
-	'-DENABLE_PROTECTOR_SERVICE=1' \
+	'-DENABLE_PLUGINS=1' \
 	'-DENABLE_SESSION_SERVICE=1' \
 	'-DENABLE_THEMES=1' \
 	'-DENABLE_BACKGROUND=1' \
 	'-DENABLE_AUTOMATION=1' \
+	'-DENABLE_GOOGLE_NOW=1' \
+	'-DENABLE_LANGUAGE_DETECTION=1' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_CAPTIVE_PORTAL_DETECTION=1' \
+	'-DENABLE_MANAGED_USERS=1' \
 	'-DENABLE_DEBUGGER_SUPPORT' \
-	'-DENABLE_EXTRA_CHECKS' \
 	'-DV8_TARGET_ARCH_X64' \
 	'-DNDEBUG' \
 	'-DNVALGRIND' \
@@ -121,6 +130,8 @@ DEFS_Release := \
 
 # Flags passed to all source files.
 CFLAGS_Release := \
+	-fstack-protector \
+	--param=ssp-buffer-size=4 \
 	-pthread \
 	-fno-exceptions \
 	-fno-strict-aliasing \
@@ -160,7 +171,7 @@ OBJS := \
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(builddir)/mksnapshot $(obj).host/v8/tools/gyp/js2c.stamp
+$(OBJS): | $(builddir)/mksnapshot.x64 $(obj).host/v8/tools/gyp/js2c.stamp
 
 # Make sure our actions/rules run before any of us.
 $(OBJS): | $(action__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot_outputs)
@@ -190,9 +201,11 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 $(obj).target/v8/tools/gyp/libv8_snapshot.a: | $(action__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot_outputs)
 
 # Preserve order dependency of special output on deps.
-$(action__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot_outputs): | $(builddir)/mksnapshot $(obj).host/v8/tools/gyp/js2c.stamp
+$(action__sources_chromium_src_v8_tools_gyp_v8_gyp_v8_snapshot_target_run_mksnapshot_outputs): | $(builddir)/mksnapshot.x64 $(obj).host/v8/tools/gyp/js2c.stamp
 
 LDFLAGS_Debug := \
+	-Wl,-z,now \
+	-Wl,-z,relro \
 	-pthread \
 	-Wl,-z,noexecstack \
 	-fPIC \
@@ -202,6 +215,8 @@ LDFLAGS_Debug := \
 	-Wl,--icf=none
 
 LDFLAGS_Release := \
+	-Wl,-z,now \
+	-Wl,-z,relro \
 	-pthread \
 	-Wl,-z,noexecstack \
 	-fPIC \

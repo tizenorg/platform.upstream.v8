@@ -32,6 +32,8 @@ const NONE        = 0;
 const READ_ONLY   = 1;
 const DONT_ENUM   = 2;
 const DONT_DELETE = 4;
+const NEW_ONE_BYTE_STRING = true;
+const NEW_TWO_BYTE_STRING = false;
 
 # Constants used for getter and setter operations.
 const GETTER = 0;
@@ -97,6 +99,7 @@ macro IS_UNDEFINED(arg)         = (typeof(arg) === 'undefined');
 macro IS_NUMBER(arg)            = (typeof(arg) === 'number');
 macro IS_STRING(arg)            = (typeof(arg) === 'string');
 macro IS_BOOLEAN(arg)           = (typeof(arg) === 'boolean');
+macro IS_SYMBOL(arg)            = (typeof(arg) === 'symbol');
 macro IS_OBJECT(arg)            = (%_IsObject(arg));
 macro IS_ARRAY(arg)             = (%_IsArray(arg));
 macro IS_FUNCTION(arg)          = (%_IsFunction(arg));
@@ -107,11 +110,15 @@ macro IS_WEAKMAP(arg)           = (%_ClassOf(arg) === 'WeakMap');
 macro IS_DATE(arg)              = (%_ClassOf(arg) === 'Date');
 macro IS_NUMBER_WRAPPER(arg)    = (%_ClassOf(arg) === 'Number');
 macro IS_STRING_WRAPPER(arg)    = (%_ClassOf(arg) === 'String');
+macro IS_SYMBOL_WRAPPER(arg)    = (%_ClassOf(arg) === 'Symbol');
 macro IS_BOOLEAN_WRAPPER(arg)   = (%_ClassOf(arg) === 'Boolean');
 macro IS_ERROR(arg)             = (%_ClassOf(arg) === 'Error');
 macro IS_SCRIPT(arg)            = (%_ClassOf(arg) === 'Script');
 macro IS_ARGUMENTS(arg)         = (%_ClassOf(arg) === 'Arguments');
 macro IS_GLOBAL(arg)            = (%_ClassOf(arg) === 'global');
+macro IS_ARRAYBUFFER(arg)       = (%_ClassOf(arg) === 'ArrayBuffer');
+macro IS_DATAVIEW(arg)          = (%_ClassOf(arg) === 'DataView');
+macro IS_GENERATOR(arg)         = (%_ClassOf(arg) === 'Generator');
 macro IS_UNDETECTABLE(arg)      = (%_IsUndetectableObject(arg));
 macro FLOOR(arg)                = $floor(arg);
 
