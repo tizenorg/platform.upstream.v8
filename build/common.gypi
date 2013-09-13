@@ -356,7 +356,8 @@
         'conditions': [
           ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
             'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
-                        '-Wnon-virtual-dtor', '-Woverloaded-virtual' ],
+                        '-Wnon-virtual-dtor', '-Woverloaded-virtual' ,
+                        '-Wno-unused-local-typedefs'],
           }],
           ['OS=="android"', {
             'variables': {
