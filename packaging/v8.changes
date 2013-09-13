@@ -1,5 +1,8 @@
+* Fri Sep 13 2013 Anas Nashif <anas.nashif@intel.com> accepted/tizen/20130912.193533@54e1cb4
+- make it build with gcc 4.8
+
 * Thu Jul 18 23:56:14 UTC 2013 - tracy.graydon@intel.com
-- eset the version
+- reset the version
 
 * Fri Nov 30 2012 Anas Nashif <anas.nashif@intel.com> 8418fb6
 - Initial import
