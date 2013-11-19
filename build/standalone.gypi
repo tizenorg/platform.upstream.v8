@@ -94,8 +94,7 @@
       'target_defaults': {
         'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
                     '-Wnon-virtual-dtor', '-pthread', '-fno-rtti',
-                    '-fno-exceptions', '-pedantic',
-                    '-Wno-unused-local-typedefs'],
+                    '-fno-exceptions', '-pedantic', '-Wno-unused-local-typedefs', '-Wno-aggressive-loop-optimizations' ],
         'ldflags': [ '-pthread', ],
         'conditions': [
           [ 'OS=="linux"', {
