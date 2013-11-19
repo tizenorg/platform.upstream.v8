@@ -217,7 +217,8 @@
       'target_defaults': {
         'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
                     '-Wno-long-long', '-pthread', '-fno-exceptions',
-                    '-pedantic', '-Wno-unused-local-typedefs'],
+                    '-pedantic', '-Wno-unused-local-typedefs',
+		    '-Wno-aggressive-loop-optimizations' ],
         'cflags_cc': [ '-Wnon-virtual-dtor', '-fno-rtti', '-std=gnu++0x' ],
         'ldflags': [ '-pthread', ],
         'conditions': [
