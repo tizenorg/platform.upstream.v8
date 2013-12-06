@@ -1,3 +1,6 @@
+* Tue Nov 19 2013 Ronan Le Martret <ronan@fridu.net> e4cf60b
+- Enable building v8 with gbs (DEVT-122)
+
 * Fri Sep 13 2013 Anas Nashif <anas.nashif@intel.com> accepted/tizen/20130912.193533@54e1cb4
 - make it build with gcc 4.8
 
