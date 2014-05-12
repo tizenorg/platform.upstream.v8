@@ -1,5 +1,5 @@
 Name:           v8
-Version:        3.14.5
+Version:        3.26.30
 Release:        0
 Summary:        JavaScript Engine
 License:        BSD-3-Clause
