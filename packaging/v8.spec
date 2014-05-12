@@ -11,7 +11,7 @@ BuildRequires:  gcc-c++
 BuildRequires:  lzma
 BuildRequires:  python-devel
 BuildRequires:  readline-devel
-ExclusiveArch:  %{ix86} x86_64 %arm
+ExclusiveArch:  %{ix86} x86_64 %arm aarch64
 
 %global somajor `echo %{version} | cut -f1 -d'.'`
 %global sominor `echo %{version} | cut -f2 -d'.'`
@@ -26,6 +26,9 @@ ExclusiveArch:  %{ix86} x86_64 %arm
 %endif
 %ifarch armv7l armv7hl
 %global target arm
+%endif
+%ifarch aarch64
+%global target arm64
 %endif
 
 %description
