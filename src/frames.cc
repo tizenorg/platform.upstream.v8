@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "v8.h"
 
@@ -36,8 +13,7 @@
 #include "safepoint-table.h"
 #include "scopeinfo.h"
 #include "string-stream.h"
-
-#include "allocation-inl.h"
+#include "vm-state-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -202,9 +178,10 @@ void StackTraceFrameIterator::Advance() {
   }
 }
 
+
 bool StackTraceFrameIterator::IsValidFrame() {
     if (!frame()->function()->IsJSFunction()) return false;
-    Object* script = JSFunction::cast(frame()->function())->shared()->script();
+    Object* script = frame()->function()->shared()->script();
     // Don't show functions from native scripts to user.
     return (script->IsScript() &&
             Script::TYPE_NATIVE != Script::cast(script)->type()->value());
@@ -216,36 +193,68 @@ bool StackTraceFrameIterator::IsValidFrame() {
 
 SafeStackFrameIterator::SafeStackFrameIterator(
     Isolate* isolate,
-    Address fp, Address sp, Address low_bound, Address high_bound) :
-    StackFrameIteratorBase(isolate, false),
-    low_bound_(low_bound), high_bound_(high_bound) {
+    Address fp, Address sp, Address js_entry_sp)
+    : StackFrameIteratorBase(isolate, false),
+      low_bound_(sp),
+      high_bound_(js_entry_sp),
+      top_frame_type_(StackFrame::NONE),
+      external_callback_scope_(isolate->external_callback_scope()) {
   StackFrame::State state;
   StackFrame::Type type;
   ThreadLocalTop* top = isolate->thread_local_top();
   if (IsValidTop(top)) {
     type = ExitFrame::GetStateForFramePointer(Isolate::c_entry_fp(top), &state);
+    top_frame_type_ = type;
   } else if (IsValidStackAddress(fp)) {
     ASSERT(fp != NULL);
     state.fp = fp;
     state.sp = sp;
     state.pc_address = StackFrame::ResolveReturnAddressLocation(
         reinterpret_cast<Address*>(StandardFrame::ComputePCAddress(fp)));
-    type = StackFrame::ComputeType(this, &state);
+    // StackFrame::ComputeType will read both kContextOffset and kMarkerOffset,
+    // we check only that kMarkerOffset is within the stack bounds and do
+    // compile time check that kContextOffset slot is pushed on the stack before
+    // kMarkerOffset.
+    STATIC_ASSERT(StandardFrameConstants::kMarkerOffset <
+                  StandardFrameConstants::kContextOffset);
+    Address frame_marker = fp + StandardFrameConstants::kMarkerOffset;
+    if (IsValidStackAddress(frame_marker)) {
+      type = StackFrame::ComputeType(this, &state);
+      top_frame_type_ = type;
+    } else {
+      // Mark the frame as JAVA_SCRIPT if we cannot determine its type.
+      // The frame anyways will be skipped.
+      type = StackFrame::JAVA_SCRIPT;
+      // Top frame is incomplete so we cannot reliably determine its type.
+      top_frame_type_ = StackFrame::NONE;
+    }
   } else {
     return;
   }
   if (SingletonFor(type) == NULL) return;
   frame_ = SingletonFor(type, &state);
+  if (frame_ == NULL) return;
 
-  if (!done()) Advance();
+  Advance();
+
+  if (frame_ != NULL && !frame_->is_exit() &&
+      external_callback_scope_ != NULL &&
+      external_callback_scope_->scope_address() < frame_->fp()) {
+    // Skip top ExternalCallbackScope if we already advanced to a JS frame
+    // under it. Sampler will anyways take this top external callback.
+    external_callback_scope_ = external_callback_scope_->previous();
+  }
 }
 
 
 bool SafeStackFrameIterator::IsValidTop(ThreadLocalTop* top) const {
-  Address fp = Isolate::c_entry_fp(top);
-  if (!IsValidExitFrame(fp)) return false;
+  Address c_entry_fp = Isolate::c_entry_fp(top);
+  if (!IsValidExitFrame(c_entry_fp)) return false;
   // There should be at least one JS_ENTRY stack handler.
-  return Isolate::handler(top) != NULL;
+  Address handler = Isolate::handler(top);
+  if (handler == NULL) return false;
+  // Check that there are no js frames on top of the native frames.
+  return c_entry_fp < handler;
 }
 
 
@@ -320,6 +329,24 @@ void SafeStackFrameIterator::Advance() {
     AdvanceOneFrame();
     if (done()) return;
     if (frame_->is_java_script()) return;
+    if (frame_->is_exit() && external_callback_scope_) {
+      // Some of the EXIT frames may have ExternalCallbackScope allocated on
+      // top of them. In that case the scope corresponds to the first EXIT
+      // frame beneath it. There may be other EXIT frames on top of the
+      // ExternalCallbackScope, just skip them as we cannot collect any useful
+      // information about them.
+      if (external_callback_scope_->scope_address() < frame_->fp()) {
+        Address* callback_address =
+            external_callback_scope_->callback_address();
+        if (*callback_address != NULL) {
+          frame_->state_.pc_address = callback_address;
+        }
+        external_callback_scope_ = external_callback_scope_->previous();
+        ASSERT(external_callback_scope_ == NULL ||
+               external_callback_scope_->scope_address() > frame_->fp());
+        return;
+      }
+    }
   }
 }
 
@@ -423,7 +450,7 @@ StackFrame::Type StackFrame::GetCallerState(State* state) const {
 
 
 Address StackFrame::UnpaddedFP() const {
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
   if (!is_optimized()) return fp();
   int32_t alignment_state = Memory::int32_at(
     fp() + JavaScriptFrameConstants::kDynamicAlignmentStateOffset);
@@ -437,7 +464,7 @@ Address StackFrame::UnpaddedFP() const {
 
 
 Code* EntryFrame::unchecked_code() const {
-  return HEAP->js_entry_code();
+  return isolate()->heap()->js_entry_code();
 }
 
 
@@ -460,7 +487,7 @@ StackFrame::Type EntryFrame::GetCallerState(State* state) const {
 
 
 Code* EntryConstructFrame::unchecked_code() const {
-  return HEAP->js_construct_entry_code();
+  return isolate()->heap()->js_construct_entry_code();
 }
 
 
@@ -481,6 +508,10 @@ void ExitFrame::ComputeCallerState(State* state) const {
   state->fp = Memory::Address_at(fp() + ExitFrameConstants::kCallerFPOffset);
   state->pc_address = ResolveReturnAddressLocation(
       reinterpret_cast<Address*>(fp() + ExitFrameConstants::kCallerPCOffset));
+  if (FLAG_enable_ool_constant_pool) {
+    state->constant_pool_address = reinterpret_cast<Address*>(
+        fp() + ExitFrameConstants::kConstantPoolOffset);
+  }
 }
 
 
@@ -494,6 +525,9 @@ void ExitFrame::Iterate(ObjectVisitor* v) const {
   // the calling frame.
   IteratePc(v, pc_address(), LookupCode());
   v->VisitPointer(&code_slot());
+  if (FLAG_enable_ool_constant_pool) {
+    v->VisitPointer(&constant_pool_slot());
+  }
 }
 
 
@@ -520,7 +554,9 @@ void ExitFrame::FillState(Address fp, Address sp, State* state) {
   state->sp = sp;
   state->fp = fp;
   state->pc_address = ResolveReturnAddressLocation(
-      reinterpret_cast<Address*>(sp - 1 * kPointerSize));
+      reinterpret_cast<Address*>(sp - 1 * kPCOnStackSize));
+  state->constant_pool_address =
+      reinterpret_cast<Address*>(fp + ExitFrameConstants::kConstantPoolOffset);
 }
 
 
@@ -557,6 +593,8 @@ void StandardFrame::ComputeCallerState(State* state) const {
   state->fp = caller_fp();
   state->pc_address = ResolveReturnAddressLocation(
       reinterpret_cast<Address*>(ComputePCAddress(fp())));
+  state->constant_pool_address =
+      reinterpret_cast<Address*>(ComputeConstantPoolAddress(fp()));
 }
 
 
@@ -602,7 +640,7 @@ void StandardFrame::IterateCompiledFrame(ObjectVisitor* v) const {
   // Skip saved double registers.
   if (safepoint_entry.has_doubles()) {
     // Number of doubles not known at snapshot time.
-    ASSERT(!Serializer::enabled());
+    ASSERT(!Serializer::enabled(isolate()));
     parameters_base += DoubleRegister::NumAllocatableRegisters() *
         kDoubleSize / kPointerSize;
   }
@@ -653,7 +691,7 @@ void StubFrame::Iterate(ObjectVisitor* v) const {
 
 
 Code* StubFrame::unchecked_code() const {
-  return static_cast<Code*>(isolate()->heap()->FindCodeObject(pc()));
+  return static_cast<Code*>(isolate()->FindCodeObject(pc()));
 }
 
 
@@ -704,8 +742,7 @@ int JavaScriptFrame::GetArgumentsLength() const {
 
 
 Code* JavaScriptFrame::unchecked_code() const {
-  JSFunction* function = JSFunction::cast(this->function());
-  return function->code();
+  return function()->code();
 }
 
 
@@ -713,8 +750,7 @@ int JavaScriptFrame::GetNumberOfIncomingArguments() const {
   ASSERT(can_access_heap_objects() &&
          isolate()->heap()->gc_state() == Heap::NOT_IN_GC);
 
-  JSFunction* function = JSFunction::cast(this->function());
-  return function->shared()->formal_parameter_count();
+  return function()->shared()->formal_parameter_count();
 }
 
 
@@ -725,7 +761,7 @@ Address JavaScriptFrame::GetCallerStackPointer() const {
 
 void JavaScriptFrame::GetFunctions(List<JSFunction*>* functions) {
   ASSERT(functions->length() == 0);
-  functions->Add(JSFunction::cast(function()));
+  functions->Add(function());
 }
 
 
@@ -734,7 +770,7 @@ void JavaScriptFrame::Summarize(List<FrameSummary>* functions) {
   Code* code_pointer = LookupCode();
   int offset = static_cast<int>(pc() - code_pointer->address());
   FrameSummary summary(receiver(),
-                       JSFunction::cast(function()),
+                       function(),
                        code_pointer,
                        offset,
                        IsConstructor());
@@ -747,7 +783,6 @@ void JavaScriptFrame::PrintTop(Isolate* isolate,
                                bool print_args,
                                bool print_line_number) {
   // constructor calls
-  HandleScope scope(isolate);
   DisallowHeapAllocation no_allocation;
   JavaScriptFrameIterator it(isolate);
   while (!it.done()) {
@@ -755,40 +790,34 @@ void JavaScriptFrame::PrintTop(Isolate* isolate,
       JavaScriptFrame* frame = it.frame();
       if (frame->IsConstructor()) PrintF(file, "new ");
       // function name
-      Object* maybe_fun = frame->function();
-      if (maybe_fun->IsJSFunction()) {
-        JSFunction* fun = JSFunction::cast(maybe_fun);
-        fun->PrintName();
-        Code* js_code = frame->unchecked_code();
-        Address pc = frame->pc();
-        int code_offset =
-            static_cast<int>(pc - js_code->instruction_start());
-        PrintF("+%d", code_offset);
-        SharedFunctionInfo* shared = fun->shared();
-        if (print_line_number) {
-          Code* code = Code::cast(
-              v8::internal::Isolate::Current()->heap()->FindCodeObject(pc));
-          int source_pos = code->SourcePosition(pc);
-          Object* maybe_script = shared->script();
-          if (maybe_script->IsScript()) {
-            Handle<Script> script(Script::cast(maybe_script));
-            int line = GetScriptLineNumberSafe(script, source_pos) + 1;
-            Object* script_name_raw = script->name();
-            if (script_name_raw->IsString()) {
-              String* script_name = String::cast(script->name());
-              SmartArrayPointer<char> c_script_name =
-                  script_name->ToCString(DISALLOW_NULLS,
-                                         ROBUST_STRING_TRAVERSAL);
-              PrintF(file, " at %s:%d", *c_script_name, line);
-            } else {
-              PrintF(file, " at <unknown>:%d", line);
-            }
+      JSFunction* fun = frame->function();
+      fun->PrintName();
+      Code* js_code = frame->unchecked_code();
+      Address pc = frame->pc();
+      int code_offset =
+          static_cast<int>(pc - js_code->instruction_start());
+      PrintF("+%d", code_offset);
+      SharedFunctionInfo* shared = fun->shared();
+      if (print_line_number) {
+        Code* code = Code::cast(isolate->FindCodeObject(pc));
+        int source_pos = code->SourcePosition(pc);
+        Object* maybe_script = shared->script();
+        if (maybe_script->IsScript()) {
+          Script* script = Script::cast(maybe_script);
+          int line = script->GetLineNumber(source_pos) + 1;
+          Object* script_name_raw = script->name();
+          if (script_name_raw->IsString()) {
+            String* script_name = String::cast(script->name());
+            SmartArrayPointer<char> c_script_name =
+                script_name->ToCString(DISALLOW_NULLS,
+                                       ROBUST_STRING_TRAVERSAL);
+            PrintF(file, " at %s:%d", c_script_name.get(), line);
           } else {
-            PrintF(file, " at <unknown>:<unknown>");
+            PrintF(file, " at <unknown>:%d", line);
           }
+        } else {
+          PrintF(file, " at <unknown>:<unknown>");
         }
-      } else {
-        PrintF("<unknown>");
       }
 
       if (print_args) {
@@ -893,7 +922,7 @@ void FrameSummary::Print() {
 JSFunction* OptimizedFrame::LiteralAt(FixedArray* literal_array,
                                       int literal_id) {
   if (literal_id == Translation::kSelfLiteralId) {
-    return JSFunction::cast(function());
+    return function();
   }
 
   return JSFunction::cast(literal_array->get(literal_id));
@@ -938,18 +967,17 @@ void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
       it.Next();  // Skip height.
 
       // The translation commands are ordered and the receiver is always
-      // at the first position. Since we are always at a call when we need
-      // to construct a stack trace, the receiver is always in a stack slot.
+      // at the first position.
+      // If we are at a call, the receiver is always in a stack slot.
+      // Otherwise we are not guaranteed to get the receiver value.
       opcode = static_cast<Translation::Opcode>(it.Next());
-      ASSERT(opcode == Translation::STACK_SLOT ||
-             opcode == Translation::LITERAL);
       int index = it.Next();
 
       // Get the correct receiver in the optimized frame.
       Object* receiver = NULL;
       if (opcode == Translation::LITERAL) {
         receiver = data->LiteralArray()->get(index);
-      } else {
+      } else if (opcode == Translation::STACK_SLOT) {
         // Positive index means the value is spilled to the locals
         // area. Negative means it is stored in the incoming parameter
         // area.
@@ -965,6 +993,13 @@ void OptimizedFrame::Summarize(List<FrameSummary>* frames) {
               ? this->receiver()
               : this->GetParameter(parameter_index);
         }
+      } else {
+        // The receiver is not in a stack slot nor in a literal.  We give up.
+        // TODO(3029): Materializing a captured object (or duplicated
+        // object) is hard, we return undefined for now. This breaks the
+        // produced stack trace, as constructor frames aren't marked as
+        // such anymore.
+        receiver = isolate()->heap()->undefined_value();
       }
 
       Code* code = function->shared()->code();
@@ -998,7 +1033,7 @@ DeoptimizationInputData* OptimizedFrame::GetDeoptimizationData(
     int* deopt_index) {
   ASSERT(is_optimized());
 
-  JSFunction* opt_function = JSFunction::cast(function());
+  JSFunction* opt_function = function();
   Code* code = opt_function->code();
 
   // The code object may have been replaced by lazy deoptimization. Fall
@@ -1110,9 +1145,9 @@ void StackFrame::PrintIndex(StringStream* accumulator,
 void JavaScriptFrame::Print(StringStream* accumulator,
                             PrintMode mode,
                             int index) const {
-  HandleScope scope(isolate());
+  DisallowHeapAllocation no_gc;
   Object* receiver = this->receiver();
-  Object* function = this->function();
+  JSFunction* function = this->function();
 
   accumulator->PrintSecurityTokenIfChanged(function);
   PrintIndex(accumulator, mode, index);
@@ -1124,31 +1159,27 @@ void JavaScriptFrame::Print(StringStream* accumulator,
   // doesn't contain scope info, scope_info will return 0 for the number of
   // parameters, stack local variables, context local variables, stack slots,
   // or context slots.
-  Handle<ScopeInfo> scope_info(ScopeInfo::Empty(isolate()));
+  SharedFunctionInfo* shared = function->shared();
+  ScopeInfo* scope_info = shared->scope_info();
+  Object* script_obj = shared->script();
+  if (script_obj->IsScript()) {
+    Script* script = Script::cast(script_obj);
+    accumulator->Add(" [");
+    accumulator->PrintName(script->name());
 
-  if (function->IsJSFunction()) {
-    Handle<SharedFunctionInfo> shared(JSFunction::cast(function)->shared());
-    scope_info = Handle<ScopeInfo>(shared->scope_info());
-    Object* script_obj = shared->script();
-    if (script_obj->IsScript()) {
-      Handle<Script> script(Script::cast(script_obj));
-      accumulator->Add(" [");
-      accumulator->PrintName(script->name());
-
-      Address pc = this->pc();
-      if (code != NULL && code->kind() == Code::FUNCTION &&
-          pc >= code->instruction_start() && pc < code->instruction_end()) {
-        int source_pos = code->SourcePosition(pc);
-        int line = GetScriptLineNumberSafe(script, source_pos) + 1;
-        accumulator->Add(":%d", line);
-      } else {
-        int function_start_pos = shared->start_position();
-        int line = GetScriptLineNumberSafe(script, function_start_pos) + 1;
-        accumulator->Add(":~%d", line);
-      }
-
-      accumulator->Add("] ");
+    Address pc = this->pc();
+    if (code != NULL && code->kind() == Code::FUNCTION &&
+        pc >= code->instruction_start() && pc < code->instruction_end()) {
+      int source_pos = code->SourcePosition(pc);
+      int line = script->GetLineNumber(source_pos) + 1;
+      accumulator->Add(":%d", line);
+    } else {
+      int function_start_pos = shared->start_position();
+      int line = script->GetLineNumber(function_start_pos) + 1;
+      accumulator->Add(":~%d", line);
     }
+
+    accumulator->Add("] ");
   }
 
   accumulator->Add("(this=%o", receiver);
@@ -1238,7 +1269,7 @@ void JavaScriptFrame::Print(StringStream* accumulator,
 
   // Print details about the function.
   if (FLAG_max_stack_trace_source_length != 0 && code != NULL) {
-    SharedFunctionInfo* shared = JSFunction::cast(function)->shared();
+    SharedFunctionInfo* shared = function->shared();
     accumulator->Add("--------- s o u r c e   c o d e ---------\n");
     shared->SourceCodePrint(accumulator, FLAG_max_stack_trace_source_length);
     accumulator->Add("\n-----------------------------------------\n");
@@ -1253,10 +1284,8 @@ void ArgumentsAdaptorFrame::Print(StringStream* accumulator,
                                   int index) const {
   int actual = ComputeParametersCount();
   int expected = -1;
-  Object* function = this->function();
-  if (function->IsJSFunction()) {
-    expected = JSFunction::cast(function)->shared()->formal_parameter_count();
-  }
+  JSFunction* function = this->function();
+  expected = function->shared()->formal_parameter_count();
 
   PrintIndex(accumulator, mode, index);
   accumulator->Add("arguments adaptor frame: %d->%d", actual, expected);
@@ -1297,7 +1326,7 @@ void EntryFrame::Iterate(ObjectVisitor* v) const {
 
 
 void StandardFrame::IterateExpressions(ObjectVisitor* v) const {
-  const int offset = StandardFrameConstants::kContextOffset;
+  const int offset = StandardFrameConstants::kLastObjectOffset;
   Object** base = &Memory::Object_at(sp());
   Object** limit = &Memory::Object_at(fp() + offset) + 1;
   for (StackHandlerIterator it(this, top_handler()); !it.done(); it.Advance()) {
@@ -1335,7 +1364,7 @@ void StubFailureTrampolineFrame::Iterate(ObjectVisitor* v) const {
                                       kFirstRegisterParameterFrameOffset);
   v->VisitPointers(base, limit);
   base = &Memory::Object_at(fp() + StandardFrameConstants::kMarkerOffset);
-  const int offset = StandardFrameConstants::kContextOffset;
+  const int offset = StandardFrameConstants::kLastObjectOffset;
   limit = &Memory::Object_at(fp() + offset) + 1;
   v->VisitPointers(base, limit);
   IteratePc(v, pc_address(), LookupCode());
@@ -1349,14 +1378,14 @@ Address StubFailureTrampolineFrame::GetCallerStackPointer() const {
 
 Code* StubFailureTrampolineFrame::unchecked_code() const {
   Code* trampoline;
-  StubFailureTrampolineStub(NOT_JS_FUNCTION_STUB_MODE).
-      FindCodeInCache(&trampoline, isolate());
+  StubFailureTrampolineStub(isolate(), NOT_JS_FUNCTION_STUB_MODE).
+      FindCodeInCache(&trampoline);
   if (trampoline->contains(pc())) {
     return trampoline;
   }
 
-  StubFailureTrampolineStub(JS_FUNCTION_STUB_MODE).
-      FindCodeInCache(&trampoline, isolate());
+  StubFailureTrampolineStub(isolate(), JS_FUNCTION_STUB_MODE).
+      FindCodeInCache(&trampoline);
   if (trampoline->contains(pc())) {
     return trampoline;
   }
@@ -1480,9 +1509,9 @@ void StackHandler::Unwind(Isolate* isolate,
                           FixedArray* array,
                           int offset,
                           int previous_handler_offset) const {
-  STATIC_ASSERT(StackHandlerConstants::kSlotCount == 5);
+  STATIC_ASSERT(StackHandlerConstants::kSlotCount >= 5);
   ASSERT_LE(0, offset);
-  ASSERT_GE(array->length(), offset + 5);
+  ASSERT_GE(array->length(), offset + StackHandlerConstants::kSlotCount);
   // Unwinding a stack handler into an array chains it in the opposite
   // direction, re-using the "next" slot as a "previous" link, so that stack
   // handlers can be later re-wound in the correct order.  Decode the "state"
@@ -1501,9 +1530,9 @@ int StackHandler::Rewind(Isolate* isolate,
                          FixedArray* array,
                          int offset,
                          Address fp) {
-  STATIC_ASSERT(StackHandlerConstants::kSlotCount == 5);
+  STATIC_ASSERT(StackHandlerConstants::kSlotCount >= 5);
   ASSERT_LE(0, offset);
-  ASSERT_GE(array->length(), offset + 5);
+  ASSERT_GE(array->length(), offset + StackHandlerConstants::kSlotCount);
   Smi* prev_handler_offset = Smi::cast(array->get(offset));
   Code* code = Code::cast(array->get(offset + 1));
   Smi* smi_index = Smi::cast(array->get(offset + 2));
@@ -1519,7 +1548,7 @@ int StackHandler::Rewind(Isolate* isolate,
   Memory::uintptr_at(address() + StackHandlerConstants::kStateOffset) = state;
   Memory::Object_at(address() + StackHandlerConstants::kContextOffset) =
       context;
-  Memory::Address_at(address() + StackHandlerConstants::kFPOffset) = fp;
+  SetFp(address() + StackHandlerConstants::kFPOffset, fp);
 
   *isolate->handler_address() = address();
 
@@ -1548,6 +1577,7 @@ void SetUpJSCallerSavedCodeData() {
 
   ASSERT(i == kNumJSCallerSaved);
 }
+
 
 int JSCallerSavedCode(int n) {
   ASSERT(0 <= n && n < kNumJSCallerSaved);
@@ -1580,6 +1610,7 @@ static StackFrame* AllocateFrameCopy(StackFrame* frame, Zone* zone) {
 #undef FRAME_TYPE_CASE
   return NULL;
 }
+
 
 Vector<StackFrame*> CreateStackMap(Isolate* isolate, Zone* zone) {
   ZoneList<StackFrame*> list(10, zone);

@@ -37,6 +37,7 @@
 #define V8_MIPS_ASSEMBLER_MIPS_H_
 
 #include <stdio.h>
+
 #include "assembler.h"
 #include "constants-mips.h"
 #include "serialize.h"
@@ -72,18 +73,35 @@ namespace internal {
 // Core register.
 struct Register {
   static const int kNumRegisters = v8::internal::kNumRegisters;
-  static const int kMaxNumAllocatableRegisters = 14;  // v0 through t7.
+  static const int kMaxNumAllocatableRegisters = 14;  // v0 through t6 and cp.
   static const int kSizeInBytes = 4;
+  static const int kCpRegister = 23;  // cp (s7) is the 23rd register.
+
+#if defined(V8_TARGET_LITTLE_ENDIAN)
+  static const int kMantissaOffset = 0;
+  static const int kExponentOffset = 4;
+#elif defined(V8_TARGET_BIG_ENDIAN)
+  static const int kMantissaOffset = 4;
+  static const int kExponentOffset = 0;
+#else
+#error Unknown endianness
+#endif
 
   inline static int NumAllocatableRegisters();
 
   static int ToAllocationIndex(Register reg) {
-    return reg.code() - 2;  // zero_reg and 'at' are skipped.
+    ASSERT((reg.code() - 2) < (kMaxNumAllocatableRegisters - 1) ||
+           reg.is(from_code(kCpRegister)));
+    return reg.is(from_code(kCpRegister)) ?
+           kMaxNumAllocatableRegisters - 1 :  // Return last index for 'cp'.
+           reg.code() - 2;  // zero_reg and 'at' are skipped.
   }
 
   static Register FromAllocationIndex(int index) {
     ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
-    return from_code(index + 2);  // zero_reg and 'at' are skipped.
+    return index == kMaxNumAllocatableRegisters - 1 ?
+           from_code(kCpRegister) :  // Last index is always the 'cp' register.
+           from_code(index + 2);  // zero_reg and 'at' are skipped.
   }
 
   static const char* AllocationIndexToString(int index) {
@@ -102,7 +120,7 @@ struct Register {
       "t4",
       "t5",
       "t6",
-      "t7",
+      "s7",
     };
     return names[index];
   }
@@ -358,6 +376,11 @@ class Operand BASE_EMBEDDED {
   // Return true if this is a register operand.
   INLINE(bool is_reg() const);
 
+  inline int32_t immediate() const {
+    ASSERT(!is_reg());
+    return imm32_;
+  }
+
   Register rm() const { return rm_; }
 
  private:
@@ -374,7 +397,15 @@ class Operand BASE_EMBEDDED {
 // Class MemOperand represents a memory operand in load and store instructions.
 class MemOperand : public Operand {
  public:
+  // Immediate value attached to offset.
+  enum OffsetAddend {
+    offset_minus_one = -1,
+    offset_zero = 0
+  };
+
   explicit MemOperand(Register rn, int32_t offset = 0);
+  explicit MemOperand(Register rn, int32_t unit, int32_t multiplier,
+                      OffsetAddend offset_addend = offset_zero);
   int32_t offset() const { return offset_; }
 
   bool OffsetIsInt16Encodable() const {
@@ -394,33 +425,59 @@ class CpuFeatures : public AllStatic {
  public:
   // Detect features of the target CPU. Set safe defaults if the serializer
   // is enabled (snapshots must be portable).
-  static void Probe();
+  static void Probe(bool serializer_enabled);
+
+  // A special case for printing target and features, which we want to do
+  // before initializing the isolate
 
   // Check whether a feature is supported by the target CPU.
   static bool IsSupported(CpuFeature f) {
     ASSERT(initialized_);
-    return (supported_ & (1u << f)) != 0;
+    return Check(f, supported_);
   }
 
   static bool IsFoundByRuntimeProbingOnly(CpuFeature f) {
     ASSERT(initialized_);
-    return (found_by_runtime_probing_only_ &
-            (static_cast<uint64_t>(1) << f)) != 0;
+    return Check(f, found_by_runtime_probing_only_);
   }
 
-  static bool IsSafeForSnapshot(CpuFeature f) {
-    return (IsSupported(f) &&
-            (!Serializer::enabled() || !IsFoundByRuntimeProbingOnly(f)));
+  static bool IsSafeForSnapshot(Isolate* isolate, CpuFeature f) {
+    return Check(f, cross_compile_) ||
+           (IsSupported(f) &&
+            (!Serializer::enabled(isolate) || !IsFoundByRuntimeProbingOnly(f)));
   }
+
+  static bool VerifyCrossCompiling() {
+    return cross_compile_ == 0;
+  }
+
+  static bool VerifyCrossCompiling(CpuFeature f) {
+    unsigned mask = flag2set(f);
+    return cross_compile_ == 0 ||
+           (cross_compile_ & mask) == mask;
+  }
+
+  static bool SupportsCrankshaft() { return CpuFeatures::IsSupported(FPU); }
 
  private:
+  static bool Check(CpuFeature f, unsigned set) {
+    return (set & flag2set(f)) != 0;
+  }
+
+  static unsigned flag2set(CpuFeature f) {
+    return 1u << f;
+  }
+
 #ifdef DEBUG
   static bool initialized_;
 #endif
   static unsigned supported_;
   static unsigned found_by_runtime_probing_only_;
 
+  static unsigned cross_compile_;
+
   friend class ExternalReference;
+  friend class PlatformFeatureScope;
   DISALLOW_COPY_AND_ASSIGN(CpuFeatures);
 };
 
@@ -485,6 +542,26 @@ class Assembler : public AssemblerBase {
   // Read/Modify the code target address in the branch/call instruction at pc.
   static Address target_address_at(Address pc);
   static void set_target_address_at(Address pc, Address target);
+  // On MIPS there is no Constant Pool so we skip that parameter.
+  INLINE(static Address target_address_at(Address pc,
+                                          ConstantPoolArray* constant_pool)) {
+    return target_address_at(pc);
+  }
+  INLINE(static void set_target_address_at(Address pc,
+                                           ConstantPoolArray* constant_pool,
+                                           Address target)) {
+    set_target_address_at(pc, target);
+  }
+  INLINE(static Address target_address_at(Address pc, Code* code)) {
+    ConstantPoolArray* constant_pool = code ? code->constant_pool() : NULL;
+    return target_address_at(pc, constant_pool);
+  }
+  INLINE(static void set_target_address_at(Address pc,
+                                           Code* code,
+                                           Address target)) {
+    ConstantPoolArray* constant_pool = code ? code->constant_pool() : NULL;
+    set_target_address_at(pc, constant_pool, target);
+  }
 
   // Return the code target address at a call site from the return address
   // of that call in the instruction stream.
@@ -498,17 +575,11 @@ class Assembler : public AssemblerBase {
   // This is for calls and branches within generated code.  The serializer
   // has already deserialized the lui/ori instructions etc.
   inline static void deserialization_set_special_target_at(
-      Address instruction_payload, Address target) {
+      Address instruction_payload, Code* code, Address target) {
     set_target_address_at(
         instruction_payload - kInstructionsFor32BitConstant * kInstrSize,
+        code,
         target);
-  }
-
-  // This sets the branch destination.
-  // This is for calls and branches to runtime code.
-  inline static void set_external_target_at(Address instruction_payload,
-                                            Address target) {
-    set_target_address_at(instruction_payload, target);
   }
 
   // Size of an instruction.
@@ -583,7 +654,8 @@ class Assembler : public AssemblerBase {
     LAST_CODE_MARKER,
     FIRST_IC_MARKER = PROPERTY_ACCESS_INLINED,
     // Code aging
-    CODE_AGE_MARKER_NOP = 6
+    CODE_AGE_MARKER_NOP = 6,
+    CODE_AGE_SEQUENCE_NOP
   };
 
   // Type == 0 is the default non-marking nop. For mips this is a
@@ -682,6 +754,11 @@ class Assembler : public AssemblerBase {
   void sw(Register rd, const MemOperand& rs);
   void swl(Register rd, const MemOperand& rs);
   void swr(Register rd, const MemOperand& rs);
+
+
+  //----------------Prefetch--------------------
+
+  void pref(int32_t hint, const MemOperand& rs);
 
 
   //-------------Misc-instructions--------------
@@ -862,6 +939,9 @@ class Assembler : public AssemblerBase {
   void db(uint8_t data);
   void dd(uint32_t data);
 
+  // Emits the address of the code stub's first instruction.
+  void emit_code_stub_address(Code* stub);
+
   PositionsRecorder* positions_recorder() { return &positions_recorder_; }
 
   // Postpone the generation of the trampoline pool for the specified number of
@@ -940,6 +1020,12 @@ class Assembler : public AssemblerBase {
   static bool IsEmittedConstant(Instr instr);
 
   void CheckTrampolinePool();
+
+  // Allocate a constant pool of the correct size for the generated code.
+  Handle<ConstantPoolArray> NewConstantPool(Isolate* isolate);
+
+  // Generate the constant pool for the generated code.
+  void PopulateConstantPool(ConstantPoolArray* constant_pool);
 
  protected:
   // Relocation for a type-recording IC has the AST id added to it.  This

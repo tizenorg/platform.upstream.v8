@@ -72,7 +72,7 @@ TEST(Page) {
 
   Page* p = Page::FromAddress(page_start);
   // Initialized Page has heap pointer, normally set by memory_allocator.
-  p->heap_ = HEAP;
+  p->heap_ = CcTest::heap();
   CHECK(p->address() == page_start);
   CHECK(p->is_valid());
 
@@ -207,8 +207,7 @@ static unsigned int Pseudorandom() {
 
 
 TEST(MemoryChunk) {
-  OS::SetUp();
-  Isolate* isolate = Isolate::Current();
+  Isolate* isolate = CcTest::i_isolate();
   isolate->InitializeLoggingAndCounters();
   Heap* heap = isolate->heap();
   CHECK(heap->ConfigureHeapDefault());
@@ -264,8 +263,7 @@ TEST(MemoryChunk) {
 
 
 TEST(MemoryAllocator) {
-  OS::SetUp();
-  Isolate* isolate = Isolate::Current();
+  Isolate* isolate = CcTest::i_isolate();
   isolate->InitializeLoggingAndCounters();
   Heap* heap = isolate->heap();
   CHECK(isolate->heap()->ConfigureHeapDefault());
@@ -314,8 +312,7 @@ TEST(MemoryAllocator) {
 
 
 TEST(NewSpace) {
-  OS::SetUp();
-  Isolate* isolate = Isolate::Current();
+  Isolate* isolate = CcTest::i_isolate();
   isolate->InitializeLoggingAndCounters();
   Heap* heap = isolate->heap();
   CHECK(heap->ConfigureHeapDefault());
@@ -326,14 +323,13 @@ TEST(NewSpace) {
 
   NewSpace new_space(heap);
 
-  CHECK(new_space.SetUp(HEAP->ReservedSemiSpaceSize(),
-                        HEAP->ReservedSemiSpaceSize()));
+  CHECK(new_space.SetUp(CcTest::heap()->ReservedSemiSpaceSize(),
+                        CcTest::heap()->ReservedSemiSpaceSize()));
   CHECK(new_space.HasBeenSetUp());
 
-  while (new_space.Available() >= Page::kMaxNonCodeHeapObjectSize) {
-    Object* obj =
-        new_space.AllocateRaw(Page::kMaxNonCodeHeapObjectSize)->
-        ToObjectUnchecked();
+  while (new_space.Available() >= Page::kMaxRegularHeapObjectSize) {
+    Object* obj = new_space.AllocateRaw(
+        Page::kMaxRegularHeapObjectSize).ToObjectChecked();
     CHECK(new_space.Contains(HeapObject::cast(obj)));
   }
 
@@ -344,8 +340,7 @@ TEST(NewSpace) {
 
 
 TEST(OldSpace) {
-  OS::SetUp();
-  Isolate* isolate = Isolate::Current();
+  Isolate* isolate = CcTest::i_isolate();
   isolate->InitializeLoggingAndCounters();
   Heap* heap = isolate->heap();
   CHECK(heap->ConfigureHeapDefault());
@@ -363,7 +358,7 @@ TEST(OldSpace) {
   CHECK(s->SetUp());
 
   while (s->Available() > 0) {
-    s->AllocateRaw(Page::kMaxNonCodeHeapObjectSize)->ToObjectUnchecked();
+    s->AllocateRaw(Page::kMaxRegularHeapObjectSize).ToObjectChecked();
   }
 
   s->TearDown();
@@ -376,12 +371,12 @@ TEST(OldSpace) {
 TEST(LargeObjectSpace) {
   v8::V8::Initialize();
 
-  LargeObjectSpace* lo = HEAP->lo_space();
+  LargeObjectSpace* lo = CcTest::heap()->lo_space();
   CHECK(lo != NULL);
 
   int lo_size = Page::kPageSize;
 
-  Object* obj = lo->AllocateRaw(lo_size, NOT_EXECUTABLE)->ToObjectUnchecked();
+  Object* obj = lo->AllocateRaw(lo_size, NOT_EXECUTABLE).ToObjectChecked();
   CHECK(obj->IsHeapObject());
 
   HeapObject* ho = HeapObject::cast(obj);
@@ -394,13 +389,35 @@ TEST(LargeObjectSpace) {
 
   while (true) {
     intptr_t available = lo->Available();
-    { MaybeObject* maybe_obj = lo->AllocateRaw(lo_size, NOT_EXECUTABLE);
-      if (!maybe_obj->ToObject(&obj)) break;
+    { AllocationResult allocation = lo->AllocateRaw(lo_size, NOT_EXECUTABLE);
+      if (allocation.IsRetry()) break;
     }
     CHECK(lo->Available() < available);
   };
 
   CHECK(!lo->IsEmpty());
 
-  CHECK(lo->AllocateRaw(lo_size, NOT_EXECUTABLE)->IsFailure());
+  CHECK(lo->AllocateRaw(lo_size, NOT_EXECUTABLE).IsRetry());
+}
+
+
+TEST(SizeOfFirstPageIsLargeEnough) {
+  if (i::FLAG_always_opt) return;
+  CcTest::InitializeVM();
+  Isolate* isolate = CcTest::i_isolate();
+
+  // Freshly initialized VM gets by with one page per space.
+  for (int i = FIRST_PAGED_SPACE; i <= LAST_PAGED_SPACE; i++) {
+    CHECK_EQ(1, isolate->heap()->paged_space(i)->CountTotalPages());
+  }
+
+  // Executing the empty script gets by with one page per space.
+  HandleScope scope(isolate);
+  CompileRun("/*empty*/");
+  for (int i = FIRST_PAGED_SPACE; i <= LAST_PAGED_SPACE; i++) {
+    CHECK_EQ(1, isolate->heap()->paged_space(i)->CountTotalPages());
+  }
+
+  // No large objects required to perform the above steps.
+  CHECK(isolate->heap()->lo_space()->IsEmpty());
 }

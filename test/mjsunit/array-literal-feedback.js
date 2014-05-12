@@ -26,7 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --allow-natives-syntax --smi-only-arrays --expose-gc
-// Flags: --track-allocation-sites --noalways-opt
+// Flags: --noalways-opt
 
 // Test element kind of objects.
 // Since --smi-only-arrays affects builtins, its default setting at compile
@@ -44,6 +44,42 @@ if (support_smi_only_arrays) {
   print("Tests do NOT include smi-only arrays.");
 }
 
+var elements_kind = {
+  fast_smi_only            :  'fast smi only elements',
+  fast                     :  'fast elements',
+  fast_double              :  'fast double elements',
+  dictionary               :  'dictionary elements',
+  external_byte            :  'external byte elements',
+  external_unsigned_byte   :  'external unsigned byte elements',
+  external_short           :  'external short elements',
+  external_unsigned_short  :  'external unsigned short elements',
+  external_int             :  'external int elements',
+  external_unsigned_int    :  'external unsigned int elements',
+  external_float           :  'external float elements',
+  external_double          :  'external double elements',
+  external_pixel           :  'external pixel elements'
+}
+
+function getKind(obj) {
+  if (%HasFastSmiElements(obj)) return elements_kind.fast_smi_only;
+  if (%HasFastObjectElements(obj)) return elements_kind.fast;
+  if (%HasFastDoubleElements(obj)) return elements_kind.fast_double;
+  if (%HasDictionaryElements(obj)) return elements_kind.dictionary;
+}
+
+function isHoley(obj) {
+  if (%HasFastHoleyElements(obj)) return true;
+  return false;
+}
+
+function assertKind(expected, obj, name_opt) {
+  if (!support_smi_only_arrays &&
+      expected == elements_kind.fast_smi_only) {
+    expected = elements_kind.fast;
+  }
+  assertEquals(expected, getKind(obj), name_opt);
+}
+
 if (support_smi_only_arrays) {
 
   function get_literal(x) {
@@ -52,11 +88,15 @@ if (support_smi_only_arrays) {
   }
 
   get_literal(3);
-  get_literal(3);
-  %OptimizeFunctionOnNextCall(get_literal);
+  // It's important to store a from before we crankshaft get_literal, because
+  // mementos won't be created from crankshafted code at all.
   a = get_literal(3);
-  assertTrue(2 != %GetOptimizationStatus(get_literal));
+  %OptimizeFunctionOnNextCall(get_literal);
+  get_literal(3);
+  assertOptimized(get_literal);
   assertTrue(%HasFastSmiElements(a));
+  // a has a memento so the transition caused by the store will affect the
+  // boilerplate.
   a[0] = 3.5;
 
   // We should have transitioned the boilerplate array to double, and
@@ -64,12 +104,27 @@ if (support_smi_only_arrays) {
   b = get_literal(3);
   assertTrue(%HasFastDoubleElements(b));
   assertEquals([1, 2, 3], b);
-  assertTrue(1 != %GetOptimizationStatus(get_literal));
+  assertUnoptimized(get_literal);
 
   // Optimize again
   get_literal(3);
   %OptimizeFunctionOnNextCall(get_literal);
   b = get_literal(3);
   assertTrue(%HasFastDoubleElements(b));
-  assertTrue(2 != %GetOptimizationStatus(get_literal));
+  assertOptimized(get_literal);
+
+
+  // Test: make sure allocation site information is updated through a
+  // transition from SMI->DOUBLE->FAST
+  (function() {
+    function bar(a, b, c) {
+      return [a, b, c];
+    }
+
+    a = bar(1, 2, 3);
+    a[0] = 3.5;
+    a[1] = 'hi';
+    b = bar(1, 2, 3);
+    assertKind(elements_kind.fast, b);
+  })();
 }

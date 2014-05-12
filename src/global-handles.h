@@ -1,29 +1,6 @@
 // Copyright 2011 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_GLOBAL_HANDLES_H_
 #define V8_GLOBAL_HANDLES_H_
@@ -31,8 +8,9 @@
 #include "../include/v8.h"
 #include "../include/v8-profiler.h"
 
+#include "handles.h"
 #include "list.h"
-#include "v8utils.h"
+#include "utils.h"
 
 namespace v8 {
 namespace internal {
@@ -127,10 +105,13 @@ class GlobalHandles {
   // Creates a new global handle that is alive until Destroy is called.
   Handle<Object> Create(Object* value);
 
+  // Copy a global handle
+  static Handle<Object> CopyGlobal(Object** location);
+
   // Destroy a global handle.
   static void Destroy(Object** location);
 
-  typedef WeakReferenceCallbacks<v8::Value, void>::Revivable RevivableCallback;
+  typedef WeakCallbackData<v8::Value, void>::Callback WeakCallback;
 
   // Make the global handle weak and set the callback parameter for the
   // handle.  When the garbage collector recognizes that only weak global
@@ -140,7 +121,7 @@ class GlobalHandles {
   // reason is that Smi::FromInt(0) does not change during garage collection.
   static void MakeWeak(Object** location,
                        void* parameter,
-                       RevivableCallback weak_reference_callback);
+                       WeakCallback weak_callback);
 
   void RecordStats(HeapStats* stats);
 
@@ -157,7 +138,7 @@ class GlobalHandles {
   }
 
   // Clear the weakness of a global handle.
-  static void ClearWeakness(Object** location);
+  static void* ClearWeakness(Object** location);
 
   // Clear the weakness of a global handle.
   static void MarkIndependent(Object** location);
@@ -328,6 +309,76 @@ class GlobalHandles {
   friend class Isolate;
 
   DISALLOW_COPY_AND_ASSIGN(GlobalHandles);
+};
+
+
+class EternalHandles {
+ public:
+  enum SingletonHandle {
+    I18N_TEMPLATE_ONE,
+    I18N_TEMPLATE_TWO,
+    DATE_CACHE_VERSION,
+
+    NUMBER_OF_SINGLETON_HANDLES
+  };
+
+  EternalHandles();
+  ~EternalHandles();
+
+  int NumberOfHandles() { return size_; }
+
+  // Create an EternalHandle, overwriting the index.
+  void Create(Isolate* isolate, Object* object, int* index);
+
+  // Grab the handle for an existing EternalHandle.
+  inline Handle<Object> Get(int index) {
+    return Handle<Object>(GetLocation(index));
+  }
+
+  // Grab the handle for an existing SingletonHandle.
+  inline Handle<Object> GetSingleton(SingletonHandle singleton) {
+    ASSERT(Exists(singleton));
+    return Get(singleton_handles_[singleton]);
+  }
+
+  // Checks whether a SingletonHandle has been assigned.
+  inline bool Exists(SingletonHandle singleton) {
+    return singleton_handles_[singleton] != kInvalidIndex;
+  }
+
+  // Assign a SingletonHandle to an empty slot and returns the handle.
+  Handle<Object> CreateSingleton(Isolate* isolate,
+                                 Object* object,
+                                 SingletonHandle singleton) {
+    Create(isolate, object, &singleton_handles_[singleton]);
+    return Get(singleton_handles_[singleton]);
+  }
+
+  // Iterates over all handles.
+  void IterateAllRoots(ObjectVisitor* visitor);
+  // Iterates over all handles which might be in new space.
+  void IterateNewSpaceRoots(ObjectVisitor* visitor);
+  // Rebuilds new space list.
+  void PostGarbageCollectionProcessing(Heap* heap);
+
+ private:
+  static const int kInvalidIndex = -1;
+  static const int kShift = 8;
+  static const int kSize = 1 << kShift;
+  static const int kMask = 0xff;
+
+  // Gets the slot for an index
+  inline Object** GetLocation(int index) {
+    ASSERT(index >= 0 && index < size_);
+    return &blocks_[index >> kShift][index & kMask];
+  }
+
+  int size_;
+  List<Object**> blocks_;
+  List<int> new_space_indices_;
+  int singleton_handles_[NUMBER_OF_SINGLETON_HANDLES];
+
+  DISALLOW_COPY_AND_ASSIGN(EternalHandles);
 };
 
 

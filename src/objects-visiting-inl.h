@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_OBJECTS_VISITING_INL_H_
 #define V8_OBJECTS_VISITING_INL_H_
@@ -60,6 +37,8 @@ void StaticNewSpaceVisitor<StaticVisitor>::Initialize() {
                   int>::Visit);
 
   table_.Register(kVisitFixedDoubleArray, &VisitFixedDoubleArray);
+  table_.Register(kVisitFixedTypedArray, &VisitFixedTypedArray);
+  table_.Register(kVisitFixedFloat64Array, &VisitFixedTypedArray);
 
   table_.Register(kVisitNativeContext,
                   &FixedBodyVisitor<StaticVisitor,
@@ -88,6 +67,8 @@ void StaticNewSpaceVisitor<StaticVisitor>::Initialize() {
   table_.Register(kVisitFreeSpace, &VisitFreeSpace);
 
   table_.Register(kVisitJSWeakMap, &JSObjectVisitor::Visit);
+
+  table_.Register(kVisitJSWeakSet, &JSObjectVisitor::Visit);
 
   table_.Register(kVisitJSRegExp, &JSObjectVisitor::Visit);
 
@@ -136,8 +117,8 @@ int StaticNewSpaceVisitor<StaticVisitor>::VisitJSTypedArray(
       map->GetHeap(),
       HeapObject::RawField(object,
           JSTypedArray::kWeakNextOffset + kPointerSize),
-      HeapObject::RawField(object, JSTypedArray::kSize));
-  return JSTypedArray::kSize;
+      HeapObject::RawField(object, JSTypedArray::kSizeWithInternalFields));
+  return JSTypedArray::kSizeWithInternalFields;
 }
 
 
@@ -152,8 +133,8 @@ int StaticNewSpaceVisitor<StaticVisitor>::VisitJSDataView(
       map->GetHeap(),
       HeapObject::RawField(object,
           JSDataView::kWeakNextOffset + kPointerSize),
-      HeapObject::RawField(object, JSDataView::kSize));
-  return JSDataView::kSize;
+      HeapObject::RawField(object, JSDataView::kSizeWithInternalFields));
+  return JSDataView::kSizeWithInternalFields;
 }
 
 
@@ -183,7 +164,15 @@ void StaticMarkingVisitor<StaticVisitor>::Initialize() {
 
   table_.Register(kVisitFixedDoubleArray, &DataObjectVisitor::Visit);
 
+  table_.Register(kVisitFixedTypedArray, &DataObjectVisitor::Visit);
+
+  table_.Register(kVisitFixedFloat64Array, &DataObjectVisitor::Visit);
+
+  table_.Register(kVisitConstantPoolArray, &VisitConstantPoolArray);
+
   table_.Register(kVisitNativeContext, &VisitNativeContext);
+
+  table_.Register(kVisitAllocationSite, &VisitAllocationSite);
 
   table_.Register(kVisitByteArray, &DataObjectVisitor::Visit);
 
@@ -193,7 +182,9 @@ void StaticMarkingVisitor<StaticVisitor>::Initialize() {
 
   table_.Register(kVisitSeqTwoByteString, &DataObjectVisitor::Visit);
 
-  table_.Register(kVisitJSWeakMap, &StaticVisitor::VisitJSWeakMap);
+  table_.Register(kVisitJSWeakMap, &StaticVisitor::VisitWeakCollection);
+
+  table_.Register(kVisitJSWeakSet, &StaticVisitor::VisitWeakCollection);
 
   table_.Register(kVisitOddball,
                   &FixedBodyVisitor<StaticVisitor,
@@ -252,10 +243,11 @@ void StaticMarkingVisitor<StaticVisitor>::VisitEmbeddedPointer(
   ASSERT(rinfo->rmode() == RelocInfo::EMBEDDED_OBJECT);
   ASSERT(!rinfo->target_object()->IsConsString());
   HeapObject* object = HeapObject::cast(rinfo->target_object());
-  if (!FLAG_weak_embedded_maps_in_optimized_code || !FLAG_collect_maps ||
-      rinfo->host()->kind() != Code::OPTIMIZED_FUNCTION ||
-      !object->IsMap() || !Map::cast(object)->CanTransition()) {
-    heap->mark_compact_collector()->RecordRelocSlot(rinfo, object);
+  heap->mark_compact_collector()->RecordRelocSlot(rinfo, object);
+  // TODO(ulan): It could be better to record slots only for strongly embedded
+  // objects here and record slots for weakly embedded object during clearing
+  // of non-live references in mark-compact.
+  if (!rinfo->host()->IsWeakObject(object)) {
     StaticVisitor::MarkObject(heap, object);
   }
 }
@@ -266,7 +258,10 @@ void StaticMarkingVisitor<StaticVisitor>::VisitCell(
     Heap* heap, RelocInfo* rinfo) {
   ASSERT(rinfo->rmode() == RelocInfo::CELL);
   Cell* cell = rinfo->target_cell();
-  StaticVisitor::MarkObject(heap, cell);
+  // No need to record slots because the cell space is not compacted during GC.
+  if (!rinfo->host()->IsWeakObject(cell)) {
+    StaticVisitor::MarkObject(heap, cell);
+  }
 }
 
 
@@ -291,11 +286,14 @@ void StaticMarkingVisitor<StaticVisitor>::VisitCodeTarget(
   // Monomorphic ICs are preserved when possible, but need to be flushed
   // when they might be keeping a Context alive, or when the heap is about
   // to be serialized.
+
   if (FLAG_cleanup_code_caches_at_gc && target->is_inline_cache_stub()
       && (target->ic_state() == MEGAMORPHIC || target->ic_state() == GENERIC ||
           target->ic_state() == POLYMORPHIC || heap->flush_monomorphic_ics() ||
-          Serializer::enabled() || target->ic_age() != heap->global_ic_age())) {
-    IC::Clear(rinfo->pc());
+          Serializer::enabled(heap->isolate()) ||
+          target->ic_age() != heap->global_ic_age() ||
+          target->is_invalidated_weak_stub())) {
+    IC::Clear(heap->isolate(), rinfo->pc(), rinfo->host()->constant_pool());
     target = Code::GetCodeFromTargetAddress(rinfo->target_address());
   }
   heap->mark_compact_collector()->RecordRelocSlot(rinfo, target);
@@ -325,8 +323,7 @@ void StaticMarkingVisitor<StaticVisitor>::VisitNativeContext(
   for (int idx = Context::FIRST_WEAK_SLOT;
        idx < Context::NATIVE_CONTEXT_SLOTS;
        ++idx) {
-    Object** slot =
-        HeapObject::RawField(object, FixedArray::OffsetOfElementAt(idx));
+    Object** slot = Context::cast(object)->RawFieldOfElementAt(idx);
     collector->RecordSlot(slot, slot, *slot);
   }
 }
@@ -380,14 +377,36 @@ void StaticMarkingVisitor<StaticVisitor>::VisitPropertyCell(
 
 
 template<typename StaticVisitor>
+void StaticMarkingVisitor<StaticVisitor>::VisitAllocationSite(
+    Map* map, HeapObject* object) {
+  Heap* heap = map->GetHeap();
+
+  Object** slot =
+      HeapObject::RawField(object, AllocationSite::kDependentCodeOffset);
+  if (FLAG_collect_maps) {
+    // Mark allocation site dependent codes array but do not push it onto
+    // marking stack, this will make references from it weak. We will clean
+    // dead codes when we iterate over allocation sites in
+    // ClearNonLiveReferences.
+    HeapObject* obj = HeapObject::cast(*slot);
+    heap->mark_compact_collector()->RecordSlot(slot, slot, obj);
+    StaticVisitor::MarkObjectWithoutPush(heap, obj);
+  } else {
+    StaticVisitor::VisitPointer(heap, slot);
+  }
+
+  StaticVisitor::VisitPointers(heap,
+      HeapObject::RawField(object, AllocationSite::kPointerFieldsBeginOffset),
+      HeapObject::RawField(object, AllocationSite::kPointerFieldsEndOffset));
+}
+
+
+template<typename StaticVisitor>
 void StaticMarkingVisitor<StaticVisitor>::VisitCode(
     Map* map, HeapObject* object) {
   Heap* heap = map->GetHeap();
   Code* code = Code::cast(object);
-  if (FLAG_cleanup_code_caches_at_gc) {
-    code->ClearTypeFeedbackCells(heap);
-  }
-  if (FLAG_age_code && !Serializer::enabled()) {
+  if (FLAG_age_code && !Serializer::enabled(heap->isolate())) {
     code->MakeOlder(heap->mark_compact_collector()->marking_parity());
   }
   code->CodeIterateBody<StaticVisitor>(heap);
@@ -401,6 +420,9 @@ void StaticMarkingVisitor<StaticVisitor>::VisitSharedFunctionInfo(
   SharedFunctionInfo* shared = SharedFunctionInfo::cast(object);
   if (shared->ic_age() != heap->global_ic_age()) {
     shared->ResetForNewContext(heap->global_ic_age());
+  }
+  if (FLAG_cleanup_code_caches_at_gc) {
+    shared->ClearTypeFeedbackInfo();
   }
   if (FLAG_cache_optimized_code &&
       FLAG_flush_optimized_code_cache &&
@@ -439,6 +461,36 @@ void StaticMarkingVisitor<StaticVisitor>::VisitSharedFunctionInfo(
     }
   }
   VisitSharedFunctionInfoStrongCode(heap, object);
+}
+
+
+template<typename StaticVisitor>
+void StaticMarkingVisitor<StaticVisitor>::VisitConstantPoolArray(
+    Map* map, HeapObject* object) {
+  Heap* heap = map->GetHeap();
+  ConstantPoolArray* constant_pool = ConstantPoolArray::cast(object);
+  for (int i = 0; i < constant_pool->count_of_code_ptr_entries(); i++) {
+    int index = constant_pool->first_code_ptr_index() + i;
+    Address code_entry =
+        reinterpret_cast<Address>(constant_pool->RawFieldOfElementAt(index));
+    StaticVisitor::VisitCodeEntry(heap, code_entry);
+  }
+  for (int i = 0; i < constant_pool->count_of_heap_ptr_entries(); i++) {
+    int index = constant_pool->first_heap_ptr_index() + i;
+    Object** slot = constant_pool->RawFieldOfElementAt(index);
+    HeapObject* object = HeapObject::cast(*slot);
+    heap->mark_compact_collector()->RecordSlot(slot, slot, object);
+    bool is_weak_object =
+        (constant_pool->get_weak_object_state() ==
+              ConstantPoolArray::WEAK_OBJECTS_IN_OPTIMIZED_CODE &&
+         Code::IsWeakObjectInOptimizedCode(object)) ||
+        (constant_pool->get_weak_object_state() ==
+              ConstantPoolArray::WEAK_OBJECTS_IN_IC &&
+         Code::IsWeakObjectInIC(object));
+    if (!is_weak_object) {
+      StaticVisitor::MarkObject(heap, object);
+    }
+  }
 }
 
 
@@ -522,7 +574,7 @@ void StaticMarkingVisitor<StaticVisitor>::VisitJSTypedArray(
       map->GetHeap(),
       HeapObject::RawField(object,
         JSTypedArray::kWeakNextOffset + kPointerSize),
-      HeapObject::RawField(object, JSTypedArray::kSize));
+      HeapObject::RawField(object, JSTypedArray::kSizeWithInternalFields));
 }
 
 
@@ -537,7 +589,7 @@ void StaticMarkingVisitor<StaticVisitor>::VisitJSDataView(
       map->GetHeap(),
       HeapObject::RawField(object,
         JSDataView::kWeakNextOffset + kPointerSize),
-      HeapObject::RawField(object, JSDataView::kSize));
+      HeapObject::RawField(object, JSDataView::kSizeWithInternalFields));
 }
 
 
@@ -553,12 +605,9 @@ void StaticMarkingVisitor<StaticVisitor>::MarkMapContents(
   // array to prevent visiting it later. Skip recording the transition
   // array slot, since it will be implicitly recorded when the pointer
   // fields of this map are visited.
-  TransitionArray* transitions = map->unchecked_transition_array();
-  if (transitions->IsTransitionArray()) {
+  if (map->HasTransitionArray()) {
+    TransitionArray* transitions = map->transitions();
     MarkTransitionArray(heap, transitions);
-  } else {
-    // Already marked by marking map->GetBackPointer() above.
-    ASSERT(transitions->IsMap() || transitions->IsUndefined());
   }
 
   // Since descriptor arrays are potentially shared, ensure that only the
@@ -837,10 +886,13 @@ void Code::CodeIterateBody(ObjectVisitor* v) {
   IteratePointer(v, kHandlerTableOffset);
   IteratePointer(v, kDeoptimizationDataOffset);
   IteratePointer(v, kTypeFeedbackInfoOffset);
+  IterateNextCodeLink(v, kNextCodeLinkOffset);
+  IteratePointer(v, kConstantPoolOffset);
 
   RelocIterator it(this, mode_mask);
+  Isolate* isolate = this->GetIsolate();
   for (; !it.done(); it.next()) {
-    it.rinfo()->Visit(v);
+    it.rinfo()->Visit(isolate, v);
   }
 }
 
@@ -869,6 +921,13 @@ void Code::CodeIterateBody(Heap* heap) {
   StaticVisitor::VisitPointer(
       heap,
       reinterpret_cast<Object**>(this->address() + kTypeFeedbackInfoOffset));
+  StaticVisitor::VisitNextCodeLink(
+      heap,
+      reinterpret_cast<Object**>(this->address() + kNextCodeLinkOffset));
+  StaticVisitor::VisitPointer(
+      heap,
+      reinterpret_cast<Object**>(this->address() + kConstantPoolOffset));
+
 
   RelocIterator it(this, mode_mask);
   for (; !it.done(); it.next()) {

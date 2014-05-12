@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "v8.h"
 #include "lithium-allocator-inl.h"
@@ -35,6 +12,8 @@
 #include "ia32/lithium-ia32.h"
 #elif V8_TARGET_ARCH_X64
 #include "x64/lithium-x64.h"
+#elif V8_TARGET_ARCH_ARM64
+#include "arm64/lithium-arm64.h"
 #elif V8_TARGET_ARCH_ARM
 #include "arm/lithium-arm.h"
 #elif V8_TARGET_ARCH_MIPS
@@ -131,7 +110,7 @@ bool LiveRange::HasOverlap(UseInterval* target) const {
 LiveRange::LiveRange(int id, Zone* zone)
     : id_(id),
       spilled_(false),
-      is_double_(false),
+      kind_(UNALLOCATED_REGISTERS),
       assigned_register_(kInvalidAssignment),
       last_interval_(NULL),
       first_interval_(NULL),
@@ -145,12 +124,9 @@ LiveRange::LiveRange(int id, Zone* zone)
       spill_start_index_(kMaxInt) { }
 
 
-void LiveRange::set_assigned_register(int reg,
-                                      RegisterKind register_kind,
-                                      Zone* zone) {
+void LiveRange::set_assigned_register(int reg, Zone* zone) {
   ASSERT(!HasRegisterAssigned() && !IsSpilled());
   assigned_register_ = reg;
-  is_double_ = (register_kind == DOUBLE_REGISTERS);
   ConvertOperands(zone);
 }
 
@@ -234,10 +210,15 @@ LOperand* LiveRange::CreateAssignedOperand(Zone* zone) {
   LOperand* op = NULL;
   if (HasRegisterAssigned()) {
     ASSERT(!IsSpilled());
-    if (IsDouble()) {
-      op = LDoubleRegister::Create(assigned_register(), zone);
-    } else {
-      op = LRegister::Create(assigned_register(), zone);
+    switch (Kind()) {
+      case GENERAL_REGISTERS:
+        op = LRegister::Create(assigned_register(), zone);
+        break;
+      case DOUBLE_REGISTERS:
+        op = LDoubleRegister::Create(assigned_register(), zone);
+        break;
+      default:
+        UNREACHABLE();
     }
   } else if (IsSpilled()) {
     ASSERT(!HasRegisterAssigned());
@@ -352,6 +333,7 @@ void LiveRange::SplitAt(LifetimePosition position,
   // Link the new live range in the chain before any of the other
   // ranges linked from the range before the split.
   result->parent_ = (parent_ == NULL) ? this : parent_;
+  result->kind_ = result->parent_->kind_;
   result->next_ = next_;
   next_ = result;
 
@@ -553,7 +535,7 @@ LAllocator::LAllocator(int num_values, HGraph* graph)
       reusable_slots_(8, zone()),
       next_virtual_register_(num_values),
       first_artificial_register_(num_values),
-      mode_(GENERAL_REGISTERS),
+      mode_(UNALLOCATED_REGISTERS),
       num_registers_(-1),
       graph_(graph),
       has_osr_entry_(false),
@@ -653,7 +635,8 @@ LiveRange* LAllocator::FixedLiveRangeFor(int index) {
   if (result == NULL) {
     result = new(zone()) LiveRange(FixedLiveRangeID(index), chunk()->zone());
     ASSERT(result->IsFixed());
-    SetLiveRangeAssignedRegister(result, index, GENERAL_REGISTERS);
+    result->kind_ = GENERAL_REGISTERS;
+    SetLiveRangeAssignedRegister(result, index);
     fixed_live_ranges_[index] = result;
   }
   return result;
@@ -667,7 +650,8 @@ LiveRange* LAllocator::FixedDoubleLiveRangeFor(int index) {
     result = new(zone()) LiveRange(FixedDoubleLiveRangeID(index),
                                    chunk()->zone());
     ASSERT(result->IsFixed());
-    SetLiveRangeAssignedRegister(result, index, DOUBLE_REGISTERS);
+    result->kind_ = DOUBLE_REGISTERS;
+    SetLiveRangeAssignedRegister(result, index);
     fixed_double_live_ranges_[index] = result;
   }
   return result;
@@ -979,7 +963,7 @@ void LAllocator::ProcessInstructions(HBasicBlock* block, BitVector* live) {
           }
         }
 
-        if (instr->ClobbersDoubleRegisters()) {
+        if (instr->ClobbersDoubleRegisters(isolate())) {
           for (int i = 0; i < DoubleRegister::NumAllocatableRegisters(); ++i) {
             if (output == NULL || !output->IsDoubleRegister() ||
                 output->index() != i) {
@@ -1364,7 +1348,7 @@ void LAllocator::BuildLiveRanges() {
           ASSERT(chunk_->info()->IsOptimizing());
           AllowHandleDereference allow_deref;
           PrintF("Function: %s\n",
-                 *chunk_->info()->function()->debug_name()->ToCString());
+                 chunk_->info()->function()->debug_name()->ToCString().get());
         }
         PrintF("Value %d used before first definition!\n", operand_index);
         LiveRange* range = LiveRangeFor(operand_index);
@@ -1374,6 +1358,12 @@ void LAllocator::BuildLiveRanges() {
       ASSERT(!found);
     }
 #endif
+  }
+
+  for (int i = 0; i < live_ranges_.length(); ++i) {
+    if (live_ranges_[i] != NULL) {
+      live_ranges_[i]->kind_ = RequiredRegisterKind(live_ranges_[i]->id());
+    }
   }
 }
 
@@ -1481,6 +1471,7 @@ void LAllocator::PopulatePointerMaps() {
 void LAllocator::AllocateGeneralRegisters() {
   LAllocatorPhase phase("L_Allocate general registers", this);
   num_registers_ = Register::NumAllocatableRegisters();
+  mode_ = GENERAL_REGISTERS;
   AllocateRegisters();
 }
 
@@ -1498,7 +1489,7 @@ void LAllocator::AllocateRegisters() {
 
   for (int i = 0; i < live_ranges_.length(); ++i) {
     if (live_ranges_[i] != NULL) {
-      if (RequiredRegisterKind(live_ranges_[i]->id()) == mode_) {
+      if (live_ranges_[i]->Kind() == mode_) {
         AddToUnhandledUnsorted(live_ranges_[i]);
       }
     }
@@ -1518,6 +1509,7 @@ void LAllocator::AllocateRegisters() {
       }
     }
   } else {
+    ASSERT(mode_ == GENERAL_REGISTERS);
     for (int i = 0; i < fixed_live_ranges_.length(); ++i) {
       LiveRange* current = fixed_live_ranges_.at(i);
       if (current != NULL) {
@@ -1812,7 +1804,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
       TraceAlloc("Assigning preferred reg %s to live range %d\n",
                  RegisterName(register_index),
                  current->id());
-      SetLiveRangeAssignedRegister(current, register_index, mode_);
+      SetLiveRangeAssignedRegister(current, register_index);
       return true;
     }
   }
@@ -1847,7 +1839,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
   TraceAlloc("Assigning free reg %s to live range %d\n",
              RegisterName(reg),
              current->id());
-  SetLiveRangeAssignedRegister(current, reg, mode_);
+  SetLiveRangeAssignedRegister(current, reg);
 
   return true;
 }
@@ -1932,7 +1924,7 @@ void LAllocator::AllocateBlockedReg(LiveRange* current) {
   TraceAlloc("Assigning blocked reg %s to live range %d\n",
              RegisterName(reg),
              current->id());
-  SetLiveRangeAssignedRegister(current, reg, mode_);
+  SetLiveRangeAssignedRegister(current, reg);
 
   // This register was not free. Thus we need to find and spill
   // parts of active and inactive live regions that use the same register
@@ -2149,7 +2141,7 @@ void LAllocator::Spill(LiveRange* range) {
 
   if (!first->HasAllocatedSpillOperand()) {
     LOperand* op = TryReuseSpillSlot(range);
-    if (op == NULL) op = chunk_->GetNextSpillSlot(mode_ == DOUBLE_REGISTERS);
+    if (op == NULL) op = chunk_->GetNextSpillSlot(range->Kind());
     first->SetSpillOperand(op);
   }
   range->MakeSpilled(chunk()->zone());
@@ -2189,7 +2181,7 @@ LAllocatorPhase::~LAllocatorPhase() {
   if (FLAG_hydrogen_stats) {
     unsigned size = allocator_->zone()->allocation_size() -
                     allocator_zone_start_allocation_size_;
-    isolate()->GetHStatistics()->SaveTiming(name(), 0, size);
+    isolate()->GetHStatistics()->SaveTiming(name(), TimeDelta(), size);
   }
 
   if (ShouldProduceTraceOutput()) {

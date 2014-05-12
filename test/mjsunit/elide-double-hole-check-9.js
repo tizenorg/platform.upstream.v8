@@ -29,8 +29,8 @@
 
 var do_set = false;
 
+%NeverOptimizeFunction(set_proto_elements);
 function set_proto_elements() {
-  try {} catch (e) {}  // Don't optimize or inline
   if (do_set) Array.prototype[1] = 1.5;
 }
 
@@ -46,4 +46,3 @@ assertEquals(0.5, f(arr, 0));
 assertEquals(0.5, f(arr, 0));
 do_set = true;
 assertEquals(2, f(arr, 1));
-

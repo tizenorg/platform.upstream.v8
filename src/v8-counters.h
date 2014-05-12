@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_V8_COUNTERS_H_
 #define V8_V8_COUNTERS_H_
@@ -51,6 +28,7 @@ namespace internal {
   HT(compile_lazy, V8.CompileLazy)
 
 #define HISTOGRAM_PERCENTAGE_LIST(HP)                                 \
+  /* Heap fragmentation. */                                           \
   HP(external_fragmentation_total,                                    \
      V8.MemoryExternalFragmentationTotal)                             \
   HP(external_fragmentation_old_pointer_space,                        \
@@ -67,12 +45,26 @@ namespace internal {
      V8.MemoryExternalFragmentationPropertyCellSpace)                 \
   HP(external_fragmentation_lo_space,                                 \
      V8.MemoryExternalFragmentationLoSpace)                           \
+  /* Percentages of heap committed to each space. */                  \
+  HP(heap_fraction_new_space,                                         \
+     V8.MemoryHeapFractionNewSpace)                                   \
+  HP(heap_fraction_old_pointer_space,                                 \
+     V8.MemoryHeapFractionOldPointerSpace)                            \
+  HP(heap_fraction_old_data_space,                                    \
+     V8.MemoryHeapFractionOldDataSpace)                               \
+  HP(heap_fraction_code_space,                                        \
+     V8.MemoryHeapFractionCodeSpace)                                  \
   HP(heap_fraction_map_space,                                         \
      V8.MemoryHeapFractionMapSpace)                                   \
   HP(heap_fraction_cell_space,                                        \
      V8.MemoryHeapFractionCellSpace)                                  \
   HP(heap_fraction_property_cell_space,                               \
      V8.MemoryHeapFractionPropertyCellSpace)                          \
+  HP(heap_fraction_lo_space,                                          \
+     V8.MemoryHeapFractionLoSpace)                                    \
+  /* Percentage of crankshafted codegen. */                           \
+  HP(codegen_fraction_crankshaft,                                     \
+     V8.CodegenFractionCrankshaft)                                    \
 
 
 #define HISTOGRAM_MEMORY_LIST(HM)                                     \
@@ -84,6 +76,10 @@ namespace internal {
      V8.MemoryHeapSampleCellSpaceCommitted)                           \
   HM(heap_sample_property_cell_space_committed,                       \
      V8.MemoryHeapSamplePropertyCellSpaceCommitted)                   \
+  HM(heap_sample_code_space_committed,                                \
+     V8.MemoryHeapSampleCodeSpaceCommitted)                           \
+  HM(heap_sample_maximum_committed,                                   \
+     V8.MemoryHeapSampleMaximumCommitted)                             \
 
 
 // WARNING: STATS_COUNTER_LIST_* is a very large macro that is causing MSVC
@@ -204,7 +200,6 @@ namespace internal {
   SC(enum_cache_hits, V8.EnumCacheHits)                               \
   SC(enum_cache_misses, V8.EnumCacheMisses)                           \
   SC(zone_segment_bytes, V8.ZoneSegmentBytes)                         \
-  SC(generic_binary_stub_calls, V8.GenericBinaryStubCalls)            \
   SC(fast_new_closure_total, V8.FastNewClosureTotal)                  \
   SC(fast_new_closure_try_optimized, V8.FastNewClosureTryOptimized)   \
   SC(fast_new_closure_install_optimized, V8.FastNewClosureInstallOptimized) \
@@ -224,23 +219,22 @@ namespace internal {
   SC(math_asin, V8.MathAsin)                                          \
   SC(math_atan, V8.MathAtan)                                          \
   SC(math_atan2, V8.MathAtan2)                                        \
-  SC(math_ceil, V8.MathCeil)                                          \
-  SC(math_cos, V8.MathCos)                                            \
   SC(math_exp, V8.MathExp)                                            \
   SC(math_floor, V8.MathFloor)                                        \
   SC(math_log, V8.MathLog)                                            \
   SC(math_pow, V8.MathPow)                                            \
   SC(math_round, V8.MathRound)                                        \
-  SC(math_sin, V8.MathSin)                                            \
   SC(math_sqrt, V8.MathSqrt)                                          \
-  SC(math_tan, V8.MathTan)                                            \
-  SC(transcendental_cache_hit, V8.TranscendentalCacheHit)             \
-  SC(transcendental_cache_miss, V8.TranscendentalCacheMiss)           \
   SC(stack_interrupts, V8.StackInterrupts)                            \
   SC(runtime_profiler_ticks, V8.RuntimeProfilerTicks)                 \
+  SC(bounds_checks_eliminated, V8.BoundsChecksEliminated)             \
+  SC(bounds_checks_hoisted, V8.BoundsChecksHoisted)                   \
   SC(soft_deopts_requested, V8.SoftDeoptsRequested)                   \
   SC(soft_deopts_inserted, V8.SoftDeoptsInserted)                     \
   SC(soft_deopts_executed, V8.SoftDeoptsExecuted)                     \
+  /* Number of write barriers in generated code. */                   \
+  SC(write_barriers_dynamic, V8.WriteBarriersDynamic)                 \
+  SC(write_barriers_static, V8.WriteBarriersStatic)                   \
   SC(new_space_bytes_available, V8.MemoryNewSpaceBytesAvailable)      \
   SC(new_space_bytes_committed, V8.MemoryNewSpaceBytesCommitted)      \
   SC(new_space_bytes_used, V8.MemoryNewSpaceBytesUsed)                \
@@ -318,6 +312,14 @@ class Counters {
   FIXED_ARRAY_SUB_INSTANCE_TYPE_LIST(SC)
 #undef SC
 
+#define SC(name) \
+  StatsCounter* count_of_CODE_AGE_##name() \
+    { return &count_of_CODE_AGE_##name##_; } \
+  StatsCounter* size_of_CODE_AGE_##name() \
+    { return &size_of_CODE_AGE_##name##_; }
+  CODE_AGE_LIST_COMPLETE(SC)
+#undef SC
+
   enum Id {
 #define RATE_ID(name, caption) k_##name,
     HISTOGRAM_TIMER_LIST(RATE_ID)
@@ -342,6 +344,10 @@ class Counters {
 #define COUNTER_ID(name) kCountOfFIXED_ARRAY__##name, \
     kSizeOfFIXED_ARRAY__##name,
     FIXED_ARRAY_SUB_INSTANCE_TYPE_LIST(COUNTER_ID)
+#undef COUNTER_ID
+#define COUNTER_ID(name) kCountOfCODE_AGE__##name, \
+    kSizeOfCODE_AGE__##name,
+    CODE_AGE_LIST_COMPLETE(COUNTER_ID)
 #undef COUNTER_ID
     stats_counter_count
   };
@@ -386,6 +392,12 @@ class Counters {
   StatsCounter size_of_FIXED_ARRAY_##name##_; \
   StatsCounter count_of_FIXED_ARRAY_##name##_;
   FIXED_ARRAY_SUB_INSTANCE_TYPE_LIST(SC)
+#undef SC
+
+#define SC(name) \
+  StatsCounter size_of_CODE_AGE_##name##_; \
+  StatsCounter count_of_CODE_AGE_##name##_;
+  CODE_AGE_LIST_COMPLETE(SC)
 #undef SC
 
   friend class Isolate;

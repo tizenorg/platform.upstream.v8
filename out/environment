@@ -1,0 +1,2 @@
+GYPFLAGS= -Dv8_enable_backtrace=1 -Dv8_use_snapshot='false' -Darm_fpu=default -Darm_float_abi=default
+CXX=/opt/arm/gcc-linaro-aarch64-linux-gnu-4.8-2014.04_linux/bin/aarch64-linux-gnu-g++

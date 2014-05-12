@@ -1,29 +1,6 @@
 // Copyright 2006-2008 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 // The common functionality when building with or without snapshots.
 
@@ -102,10 +79,19 @@ bool Snapshot::Initialize(const char* snapshot_file) {
     DeleteArray(str);
     return success;
   } else if (size_ > 0) {
+    ElapsedTimer timer;
+    if (FLAG_profile_deserialization) {
+      timer.Start();
+    }
     SnapshotByteSource source(raw_data_, raw_size_);
     Deserializer deserializer(&source);
     ReserveSpaceForLinkedInSnapshot(&deserializer);
-    return V8::Initialize(&deserializer);
+    bool success = V8::Initialize(&deserializer);
+    if (FLAG_profile_deserialization) {
+      double ms = timer.Elapsed().InMillisecondsF();
+      PrintF("[Snapshot loading and deserialization took %0.3f ms]\n", ms);
+    }
+    return success;
   }
   return false;
 }
@@ -116,7 +102,7 @@ bool Snapshot::HaveASnapshotToStartFrom() {
 }
 
 
-Handle<Context> Snapshot::NewContextFromSnapshot() {
+Handle<Context> Snapshot::NewContextFromSnapshot(Isolate* isolate) {
   if (context_size_ == 0) {
     return Handle<Context>();
   }
@@ -132,7 +118,7 @@ Handle<Context> Snapshot::NewContextFromSnapshot() {
   deserializer.set_reservation(CELL_SPACE, context_cell_space_used_);
   deserializer.set_reservation(PROPERTY_CELL_SPACE,
                                context_property_cell_space_used_);
-  deserializer.DeserializePartial(&root);
+  deserializer.DeserializePartial(isolate, &root);
   CHECK(root->IsContext());
   return Handle<Context>(Context::cast(root));
 }

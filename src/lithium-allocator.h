@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_LITHIUM_ALLOCATOR_H_
 #define V8_LITHIUM_ALLOCATOR_H_
@@ -47,16 +24,12 @@ class HValue;
 class BitVector;
 class StringStream;
 
-class LArgument;
 class LPlatformChunk;
 class LOperand;
 class LUnallocated;
-class LConstantOperand;
 class LGap;
 class LParallelMove;
 class LPointerMap;
-class LStackSlot;
-class LRegister;
 
 
 // This class represents a single point of a LOperand's lifetime.
@@ -146,6 +119,7 @@ class LifetimePosition {
 
 
 enum RegisterKind {
+  UNALLOCATED_REGISTERS,
   GENERAL_REGISTERS,
   DOUBLE_REGISTERS
 };
@@ -290,9 +264,7 @@ class LiveRange: public ZoneObject {
   LOperand* CreateAssignedOperand(Zone* zone);
   int assigned_register() const { return assigned_register_; }
   int spill_start_index() const { return spill_start_index_; }
-  void set_assigned_register(int reg,
-                             RegisterKind register_kind,
-                             Zone* zone);
+  void set_assigned_register(int reg, Zone* zone);
   void MakeSpilled(Zone* zone);
 
   // Returns use position in this live range that follows both start
@@ -323,7 +295,7 @@ class LiveRange: public ZoneObject {
   // live range to the result live range.
   void SplitAt(LifetimePosition position, LiveRange* result, Zone* zone);
 
-  bool IsDouble() const { return is_double_; }
+  RegisterKind Kind() const { return kind_; }
   bool HasRegisterAssigned() const {
     return assigned_register_ != kInvalidAssignment;
   }
@@ -392,7 +364,7 @@ class LiveRange: public ZoneObject {
 
   int id_;
   bool spilled_;
-  bool is_double_;
+  RegisterKind kind_;
   int assigned_register_;
   UseInterval* last_interval_;
   UseInterval* first_interval_;
@@ -406,6 +378,8 @@ class LiveRange: public ZoneObject {
   LOperand* current_hint_operand_;
   LOperand* spill_operand_;
   int spill_start_index_;
+
+  friend class LAllocator;  // Assigns to kind_.
 };
 
 
@@ -568,9 +542,7 @@ class LAllocator BASE_EMBEDDED {
                           HBasicBlock* block,
                           HBasicBlock* pred);
 
-  inline void SetLiveRangeAssignedRegister(LiveRange* range,
-                                           int reg,
-                                           RegisterKind register_kind);
+  inline void SetLiveRangeAssignedRegister(LiveRange* range, int reg);
 
   // Return parallel move that should be used to connect ranges split at the
   // given position.

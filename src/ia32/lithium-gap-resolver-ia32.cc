@@ -1,33 +1,10 @@
 // Copyright 2011 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "v8.h"
 
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
 
 #include "ia32/lithium-gap-resolver-ia32.h"
 #include "ia32/lithium-codegen-ia32.h"
@@ -306,20 +283,43 @@ void LGapResolver::EmitMove(int index) {
     LConstantOperand* constant_source = LConstantOperand::cast(source);
     if (destination->IsRegister()) {
       Register dst = cgen_->ToRegister(destination);
-      if (cgen_->IsSmi(constant_source)) {
-        __ Set(dst, cgen_->ToSmiImmediate(constant_source));
-      } else if (cgen_->IsInteger32(constant_source)) {
-        __ Set(dst, cgen_->ToInteger32Immediate(constant_source));
+      Representation r = cgen_->IsSmi(constant_source)
+          ? Representation::Smi() : Representation::Integer32();
+      if (cgen_->IsInteger32(constant_source)) {
+        __ Move(dst, cgen_->ToImmediate(constant_source, r));
       } else {
         __ LoadObject(dst, cgen_->ToHandle(constant_source));
+      }
+    } else if (destination->IsDoubleRegister()) {
+      double v = cgen_->ToDouble(constant_source);
+      uint64_t int_val = BitCast<uint64_t, double>(v);
+      int32_t lower = static_cast<int32_t>(int_val);
+      int32_t upper = static_cast<int32_t>(int_val >> kBitsPerInt);
+      if (CpuFeatures::IsSupported(SSE2)) {
+        CpuFeatureScope scope(cgen_->masm(), SSE2);
+        XMMRegister dst = cgen_->ToDoubleRegister(destination);
+        if (int_val == 0) {
+          __ xorps(dst, dst);
+        } else {
+          __ push(Immediate(upper));
+          __ push(Immediate(lower));
+          __ movsd(dst, Operand(esp, 0));
+          __ add(esp, Immediate(kDoubleSize));
+        }
+      } else {
+        __ push(Immediate(upper));
+        __ push(Immediate(lower));
+        X87Register dst = cgen_->ToX87Register(destination);
+        cgen_->X87Mov(dst, MemOperand(esp, 0));
+        __ add(esp, Immediate(kDoubleSize));
       }
     } else {
       ASSERT(destination->IsStackSlot());
       Operand dst = cgen_->ToOperand(destination);
-      if (cgen_->IsSmi(constant_source)) {
-        __ Set(dst, cgen_->ToSmiImmediate(constant_source));
-      } else if (cgen_->IsInteger32(constant_source)) {
-        __ Set(dst, cgen_->ToInteger32Immediate(constant_source));
+      Representation r = cgen_->IsSmi(constant_source)
+          ? Representation::Smi() : Representation::Integer32();
+      if (cgen_->IsInteger32(constant_source)) {
+        __ Move(dst, cgen_->ToImmediate(constant_source, r));
       } else {
         Register tmp = EnsureTempRegister();
         __ LoadObject(tmp, cgen_->ToHandle(constant_source));
@@ -337,15 +337,15 @@ void LGapResolver::EmitMove(int index) {
       } else {
         ASSERT(destination->IsDoubleStackSlot());
         Operand dst = cgen_->ToOperand(destination);
-        __ movdbl(dst, src);
+        __ movsd(dst, src);
       }
     } else {
       // load from the register onto the stack, store in destination, which must
       // be a double stack slot in the non-SSE2 case.
-      ASSERT(source->index() == 0);  // source is on top of the stack
       ASSERT(destination->IsDoubleStackSlot());
       Operand dst = cgen_->ToOperand(destination);
-      cgen_->ReadX87Operand(dst);
+      X87Register src = cgen_->ToX87Register(source);
+      cgen_->X87Mov(dst, src);
     }
   } else if (source->IsDoubleStackSlot()) {
     if (CpuFeatures::IsSupported(SSE2)) {
@@ -355,12 +355,12 @@ void LGapResolver::EmitMove(int index) {
       Operand src = cgen_->ToOperand(source);
       if (destination->IsDoubleRegister()) {
         XMMRegister dst = cgen_->ToDoubleRegister(destination);
-        __ movdbl(dst, src);
+        __ movsd(dst, src);
       } else {
         // We rely on having xmm0 available as a fixed scratch register.
         Operand dst = cgen_->ToOperand(destination);
-        __ movdbl(xmm0, src);
-        __ movdbl(dst, xmm0);
+        __ movsd(xmm0, src);
+        __ movsd(dst, xmm0);
       }
     } else {
       // load from the stack slot on top of the floating point stack, and then
@@ -378,10 +378,8 @@ void LGapResolver::EmitMove(int index) {
         __ mov(dst1, tmp);
       } else {
         Operand src = cgen_->ToOperand(source);
-        if (cgen_->X87StackNonEmpty()) {
-          cgen_->PopX87();
-        }
-        cgen_->PushX87DoubleOperand(src);
+        X87Register dst = cgen_->ToX87Register(destination);
+        cgen_->X87Mov(dst, src);
       }
     }
   } else {
@@ -465,9 +463,9 @@ void LGapResolver::EmitSwap(int index) {
                                               : destination);
     Operand other =
         cgen_->ToOperand(source->IsDoubleRegister() ? destination : source);
-    __ movdbl(xmm0, other);
-    __ movdbl(other, reg);
-    __ movdbl(reg, Operand(xmm0));
+    __ movsd(xmm0, other);
+    __ movsd(other, reg);
+    __ movaps(reg, xmm0);
   } else if (source->IsDoubleStackSlot() && destination->IsDoubleStackSlot()) {
     CpuFeatureScope scope(cgen_->masm(), SSE2);
     // Double-width memory-to-memory.  Spill on demand to use a general
@@ -478,12 +476,12 @@ void LGapResolver::EmitSwap(int index) {
     Operand src1 = cgen_->HighOperand(source);
     Operand dst0 = cgen_->ToOperand(destination);
     Operand dst1 = cgen_->HighOperand(destination);
-    __ movdbl(xmm0, dst0);  // Save destination in xmm0.
+    __ movsd(xmm0, dst0);  // Save destination in xmm0.
     __ mov(tmp, src0);  // Then use tmp to copy source to destination.
     __ mov(dst0, tmp);
     __ mov(tmp, src1);
     __ mov(dst1, tmp);
-    __ movdbl(src0, xmm0);
+    __ movsd(src0, xmm0);
 
   } else {
     // No other combinations are possible.

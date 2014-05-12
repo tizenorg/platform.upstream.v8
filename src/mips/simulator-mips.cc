@@ -1,37 +1,15 @@
 // Copyright 2011 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
-#include <stdlib.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <stdlib.h>
 #include <cmath>
-#include <cstdarg>
+
 #include "v8.h"
 
-#if defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_MIPS
 
 #include "cpu.h"
 #include "disasm.h"
@@ -924,6 +902,10 @@ Simulator::Simulator(Isolate* isolate) : isolate_(isolate) {
 }
 
 
+Simulator::~Simulator() {
+}
+
+
 // When the generated code calls an external reference we need to catch that in
 // the simulator.  The external reference will be a function compiled for the
 // host architecture.  We need to call that function instead of trying to
@@ -969,6 +951,12 @@ class Redirection {
     char* addr_of_redirection =
         addr_of_swi - OFFSET_OF(Redirection, swi_instruction_);
     return reinterpret_cast<Redirection*>(addr_of_redirection);
+  }
+
+  static void* ReverseRedirection(int32_t reg) {
+    Redirection* redirection = FromSwiInstruction(
+        reinterpret_cast<Instruction*>(reinterpret_cast<void*>(reg)));
+    return redirection->external_function();
   }
 
  private:
@@ -1387,28 +1375,13 @@ typedef double (*SimulatorRuntimeFPIntCall)(double darg0, int32_t arg0);
 
 // This signature supports direct call in to API function native callback
 // (refer to InvocationCallback in v8.h).
-// NOTE: the O32 abi requires a0 to hold a special pointer when returning a
-// struct from the function (which is currently the case). This means we pass
-// the first argument in a1 instead of a0.
-typedef v8::Handle<v8::Value> (*SimulatorRuntimeDirectApiCall)(int32_t arg0);
-// Here, we pass the first argument in a0, because this function
-// does not return a struct.
-typedef void (*SimulatorRuntimeDirectApiCallNew)(int32_t arg0);
-typedef v8::Handle<v8::Value> (*SimulatorRuntimeProfilingApiCall)(
-    int32_t arg0, int32_t arg1);
-typedef void (*SimulatorRuntimeProfilingApiCallNew)(int32_t arg0, int32_t arg1);
+typedef void (*SimulatorRuntimeDirectApiCall)(int32_t arg0);
+typedef void (*SimulatorRuntimeProfilingApiCall)(int32_t arg0, void* arg1);
 
 // This signature supports direct call to accessor getter callback.
-// See comment at SimulatorRuntimeDirectApiCall.
-typedef v8::Handle<v8::Value> (*SimulatorRuntimeDirectGetterCall)(int32_t arg0,
-                                                                  int32_t arg1);
-// See comment at SimulatorRuntimeDirectApiCallNew.
-typedef void (*SimulatorRuntimeDirectGetterCallNew)(int32_t arg0,
-                                                    int32_t arg1);
-typedef v8::Handle<v8::Value> (*SimulatorRuntimeProfilingGetterCall)(
-    int32_t arg0, int32_t arg1, int32_t arg2);
-typedef void (*SimulatorRuntimeProfilingGetterCallNew)(
-    int32_t arg0, int32_t arg1, int32_t arg2);
+typedef void (*SimulatorRuntimeDirectGetterCall)(int32_t arg0, int32_t arg1);
+typedef void (*SimulatorRuntimeProfilingGetterCall)(
+    int32_t arg0, int32_t arg1, void* arg2);
 
 // Software interrupt instructions are used by the simulator to call into the
 // C-based V8 runtime. They are also used for debugging with simulator.
@@ -1553,102 +1526,41 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
           break;
         }
       }
-    } else if (
-        redirection->type() == ExternalReference::DIRECT_API_CALL ||
-        redirection->type() == ExternalReference::DIRECT_API_CALL_NEW) {
-      if (redirection->type() == ExternalReference::DIRECT_API_CALL) {
-        // See comment at type definition of SimulatorRuntimeDirectApiCall
-        // for explanation of register usage.
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x\n",
-              reinterpret_cast<void*>(external), arg1);
-        }
-        SimulatorRuntimeDirectApiCall target =
-            reinterpret_cast<SimulatorRuntimeDirectApiCall>(external);
-        v8::Handle<v8::Value> result = target(arg1);
-        *(reinterpret_cast<int*>(arg0)) = reinterpret_cast<int32_t>(*result);
-        set_register(v0, arg0);
-      } else {
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x\n",
-              reinterpret_cast<void*>(external), arg0);
-        }
-        SimulatorRuntimeDirectApiCallNew target =
-            reinterpret_cast<SimulatorRuntimeDirectApiCallNew>(external);
-        target(arg0);
+    } else if (redirection->type() == ExternalReference::DIRECT_API_CALL) {
+      if (::v8::internal::FLAG_trace_sim) {
+        PrintF("Call to host function at %p args %08x\n",
+            reinterpret_cast<void*>(external), arg0);
       }
+      SimulatorRuntimeDirectApiCall target =
+          reinterpret_cast<SimulatorRuntimeDirectApiCall>(external);
+      target(arg0);
     } else if (
-        redirection->type() == ExternalReference::PROFILING_API_CALL ||
-        redirection->type() == ExternalReference::PROFILING_API_CALL_NEW) {
-      if (redirection->type() == ExternalReference::PROFILING_API_CALL) {
-        // See comment at type definition of SimulatorRuntimeDirectApiCall
-        // for explanation of register usage.
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x\n",
-              reinterpret_cast<void*>(external), arg1, arg2);
-        }
-        SimulatorRuntimeProfilingApiCall target =
-            reinterpret_cast<SimulatorRuntimeProfilingApiCall>(external);
-        v8::Handle<v8::Value> result = target(arg1, arg2);
-        *(reinterpret_cast<int*>(arg0)) = reinterpret_cast<int32_t>(*result);
-        set_register(v0, arg0);
-      } else {
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x\n",
-              reinterpret_cast<void*>(external), arg0, arg1);
-        }
-        SimulatorRuntimeProfilingApiCallNew target =
-            reinterpret_cast<SimulatorRuntimeProfilingApiCallNew>(external);
-        target(arg0, arg1);
+        redirection->type() == ExternalReference::PROFILING_API_CALL) {
+      if (::v8::internal::FLAG_trace_sim) {
+        PrintF("Call to host function at %p args %08x %08x\n",
+            reinterpret_cast<void*>(external), arg0, arg1);
       }
+      SimulatorRuntimeProfilingApiCall target =
+          reinterpret_cast<SimulatorRuntimeProfilingApiCall>(external);
+      target(arg0, Redirection::ReverseRedirection(arg1));
     } else if (
-        redirection->type() == ExternalReference::DIRECT_GETTER_CALL ||
-        redirection->type() == ExternalReference::DIRECT_GETTER_CALL_NEW) {
-      if (redirection->type() == ExternalReference::DIRECT_GETTER_CALL) {
-        // See comment at type definition of SimulatorRuntimeDirectGetterCall
-        // for explanation of register usage.
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x\n",
-              reinterpret_cast<void*>(external), arg1, arg2);
-        }
-        SimulatorRuntimeDirectGetterCall target =
-            reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
-        v8::Handle<v8::Value> result = target(arg1, arg2);
-        *(reinterpret_cast<int*>(arg0)) = reinterpret_cast<int32_t>(*result);
-        set_register(v0, arg0);
-      } else {
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x\n",
-              reinterpret_cast<void*>(external), arg0, arg1);
-        }
-        SimulatorRuntimeDirectGetterCallNew target =
-            reinterpret_cast<SimulatorRuntimeDirectGetterCallNew>(external);
-        target(arg0, arg1);
+        redirection->type() == ExternalReference::DIRECT_GETTER_CALL) {
+      if (::v8::internal::FLAG_trace_sim) {
+        PrintF("Call to host function at %p args %08x %08x\n",
+            reinterpret_cast<void*>(external), arg0, arg1);
       }
+      SimulatorRuntimeDirectGetterCall target =
+          reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
+      target(arg0, arg1);
     } else if (
-        redirection->type() == ExternalReference::PROFILING_GETTER_CALL ||
-        redirection->type() == ExternalReference::PROFILING_GETTER_CALL_NEW) {
-      if (redirection->type() == ExternalReference::PROFILING_GETTER_CALL) {
-        // See comment at type definition of SimulatorRuntimeProfilingGetterCall
-        // for explanation of register usage.
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x %08x\n",
-              reinterpret_cast<void*>(external), arg1, arg2, arg3);
-        }
-        SimulatorRuntimeProfilingGetterCall target =
-            reinterpret_cast<SimulatorRuntimeProfilingGetterCall>(external);
-        v8::Handle<v8::Value> result = target(arg1, arg2, arg3);
-        *(reinterpret_cast<int*>(arg0)) = reinterpret_cast<int32_t>(*result);
-        set_register(v0, arg0);
-      } else {
-        if (::v8::internal::FLAG_trace_sim) {
-          PrintF("Call to host function at %p args %08x %08x %08x\n",
-              reinterpret_cast<void*>(external), arg0, arg1, arg2);
-        }
-        SimulatorRuntimeProfilingGetterCallNew target =
-            reinterpret_cast<SimulatorRuntimeProfilingGetterCallNew>(external);
-        target(arg0, arg1, arg2);
+        redirection->type() == ExternalReference::PROFILING_GETTER_CALL) {
+      if (::v8::internal::FLAG_trace_sim) {
+        PrintF("Call to host function at %p args %08x %08x %08x\n",
+            reinterpret_cast<void*>(external), arg0, arg1, arg2);
       }
+      SimulatorRuntimeProfilingGetterCall target =
+          reinterpret_cast<SimulatorRuntimeProfilingGetterCall>(external);
+      target(arg0, arg1, Redirection::ReverseRedirection(arg2));
     } else {
       SimulatorRuntimeCall target =
                   reinterpret_cast<SimulatorRuntimeCall>(external);
@@ -1798,6 +1710,7 @@ void Simulator::ConfigureTypeRegister(Instruction* instr,
                                       int64_t& i64hilo,
                                       uint64_t& u64hilo,
                                       int32_t& next_pc,
+                                      int32_t& return_addr_reg,
                                       bool& do_interrupt) {
   // Every local variable declared here needs to be const.
   // This is to make sure that changed values are sent back to
@@ -1858,6 +1771,7 @@ void Simulator::ConfigureTypeRegister(Instruction* instr,
         case JR:
         case JALR:
           next_pc = get_register(instr->RsValue());
+          return_addr_reg = instr->RdValue();
           break;
         case SLL:
           alu_out = rt << sa;
@@ -1993,7 +1907,11 @@ void Simulator::ConfigureTypeRegister(Instruction* instr,
           alu_out = rs_u * rt_u;  // Only the lower 32 bits are kept.
           break;
         case CLZ:
-          alu_out = __builtin_clz(rs_u);
+          // MIPS32 spec: If no bits were set in GPR rs, the result written to
+          // GPR rd is 32.
+          // GCC __builtin_clz: If input is 0, the result is undefined.
+          alu_out =
+              rs_u == 0 ? 32 : CompilerIntrinsics::CountLeadingZeros(rs_u);
           break;
         default:
           UNREACHABLE();
@@ -2062,6 +1980,7 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
   int32_t current_pc = get_pc();
   // Next pc
   int32_t next_pc = 0;
+  int32_t return_addr_reg = 31;
 
   // Set up the variables if needed before executing the instruction.
   ConfigureTypeRegister(instr,
@@ -2069,6 +1988,7 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
                         i64hilo,
                         u64hilo,
                         next_pc,
+                        return_addr_reg,
                         do_interrupt);
 
   // ---------- Raise exceptions triggered.
@@ -2187,7 +2107,7 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
               // In rounding mode 0 it should behave like ROUND.
             case ROUND_W_D:  // Round double to word (round half to even).
               {
-                double rounded = floor(fs + 0.5);
+                double rounded = std::floor(fs + 0.5);
                 int32_t result = static_cast<int32_t>(rounded);
                 if ((result & 1) != 0 && result - fs == 0.5) {
                   // If the number is halfway between two integers,
@@ -2212,7 +2132,7 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
               break;
             case FLOOR_W_D:  // Round double to word towards negative infinity.
               {
-                double rounded = floor(fs);
+                double rounded = std::floor(fs);
                 int32_t result = static_cast<int32_t>(rounded);
                 set_fpu_register(fd_reg, result);
                 if (set_fcsr_round_error(fs, rounded)) {
@@ -2222,7 +2142,7 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
               break;
             case CEIL_W_D:  // Round double to word towards positive infinity.
               {
-                double rounded = ceil(fs);
+                double rounded = std::ceil(fs);
                 int32_t result = static_cast<int32_t>(rounded);
                 set_fpu_register(fd_reg, result);
                 if (set_fcsr_round_error(fs, rounded)) {
@@ -2248,19 +2168,20 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
               break;
             }
             case ROUND_L_D: {  // Mips32r2 instruction.
-              double rounded = fs > 0 ? floor(fs + 0.5) : ceil(fs - 0.5);
+              double rounded =
+                  fs > 0 ? std::floor(fs + 0.5) : std::ceil(fs - 0.5);
               i64 = static_cast<int64_t>(rounded);
               set_fpu_register(fd_reg, i64 & 0xffffffff);
               set_fpu_register(fd_reg + 1, i64 >> 32);
               break;
             }
             case FLOOR_L_D:  // Mips32r2 instruction.
-              i64 = static_cast<int64_t>(floor(fs));
+              i64 = static_cast<int64_t>(std::floor(fs));
               set_fpu_register(fd_reg, i64 & 0xffffffff);
               set_fpu_register(fd_reg + 1, i64 >> 32);
               break;
             case CEIL_L_D:  // Mips32r2 instruction.
-              i64 = static_cast<int64_t>(ceil(fs));
+              i64 = static_cast<int64_t>(std::ceil(fs));
               set_fpu_register(fd_reg, i64 & 0xffffffff);
               set_fpu_register(fd_reg + 1, i64 >> 32);
               break;
@@ -2334,7 +2255,8 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
           Instruction* branch_delay_instr = reinterpret_cast<Instruction*>(
               current_pc+Instruction::kInstrSize);
           BranchDelayInstructionDecode(branch_delay_instr);
-          set_register(31, current_pc + 2 * Instruction::kInstrSize);
+          set_register(return_addr_reg,
+                       current_pc + 2 * Instruction::kInstrSize);
           set_pc(next_pc);
           pc_modified_ = true;
           break;
@@ -2350,9 +2272,13 @@ void Simulator::DecodeTypeRegister(Instruction* instr) {
           break;
         case DIV:
           // Divide by zero and overflow was not checked in the configuration
-          // step - div and divu do not raise exceptions. On division by 0 and
-          // on overflow (INT_MIN/-1), the result will be UNPREDICTABLE.
-          if (rt != 0 && !(rs == INT_MIN && rt == -1)) {
+          // step - div and divu do not raise exceptions. On division by 0
+          // the result will be UNPREDICTABLE. On overflow (INT_MIN/-1),
+          // return INT_MIN which is what the hardware does.
+          if (rs == INT_MIN && rt == -1) {
+            set_register(LO, INT_MIN);
+            set_register(HI, 0);
+          } else if (rt != 0) {
             set_register(LO, rs / rt);
             set_register(HI, rs % rt);
           }

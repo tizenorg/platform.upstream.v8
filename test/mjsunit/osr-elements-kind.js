@@ -26,7 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --allow-natives-syntax --smi-only-arrays --expose-gc
-// Flags: --notrack_allocation_sites
 
 // Limit the number of stress runs to reduce polymorphism it defeats some of the
 // assumptions made about how elements transitions work because transition stubs
@@ -109,18 +108,30 @@ function assertKind(expected, obj, name_opt) {
 }
 
 // long-running loop forces OSR.
+%NeverOptimizeFunction(construct_smis);
+%NeverOptimizeFunction(construct_doubles);
+%NeverOptimizeFunction(convert_mixed);
 for (var i = 0; i < 1000000; i++) { }
 
 if (support_smi_only_arrays) {
+  // This code exists to eliminate the learning influence of AllocationSites
+  // on the following tests.
+  var __sequence = 0;
+  function make_array_string() {
+    this.__sequence = this.__sequence + 1;
+    return "/* " + this.__sequence + " */  [0, 0, 0];"
+  }
+  function make_array() {
+    return eval(make_array_string());
+  }
+
   function construct_smis() {
-    try {} catch (e) {} // TODO(titzer): DisableOptimization
-    var a = [0, 0, 0];
+    var a = make_array();
     a[0] = 0;  // Send the COW array map to the steak house.
     assertKind(elements_kind.fast_smi_only, a);
     return a;
   }
   function construct_doubles() {
-    try {} catch (e) {} // TODO(titzer): DisableOptimization
     var a = construct_smis();
     a[0] = 1.5;
     assertKind(elements_kind.fast_double, a);
@@ -130,7 +141,6 @@ if (support_smi_only_arrays) {
   // Test transition chain SMI->DOUBLE->FAST (crankshafted function will
   // transition to FAST directly).
   function convert_mixed(array, value, kind) {
-    try {} catch (e) {} // TODO(titzer): DisableOptimization
     array[1] = value;
     assertKind(kind, array);
     assertEquals(value, array[1]);

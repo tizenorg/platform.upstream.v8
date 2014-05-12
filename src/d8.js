@@ -1,29 +1,6 @@
 // Copyright 2008 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 "use strict";
 
@@ -40,7 +17,7 @@ function log10(num) {
 
 function ToInspectableObject(obj) {
   if (!obj && typeof obj === 'object') {
-    return void 0;
+    return UNDEFINED;
   } else {
     return Object(obj);
   }
@@ -333,7 +310,7 @@ function DebugRequest(cmd_line) {
   }
 
   if ((cmd === undefined) || !cmd) {
-    this.request_ = void 0;
+    this.request_ = UNDEFINED;
     return;
   }
 
@@ -492,7 +469,7 @@ function DebugRequest(cmd_line) {
     case 'trace':
     case 'tr':
       // Return undefined to indicate command handled internally (no JSON).
-      this.request_ = void 0;
+      this.request_ = UNDEFINED;
       this.traceCommand_(args);
       break;
 
@@ -500,7 +477,7 @@ function DebugRequest(cmd_line) {
     case '?':
       this.helpCommand_(args);
       // Return undefined to indicate command handled internally (no JSON).
-      this.request_ = void 0;
+      this.request_ = UNDEFINED;
       break;
 
     default:
@@ -1020,7 +997,7 @@ DebugRequest.prototype.changeBreakpointCommandToJSONRequest_ =
           args.substring(nextPos + 1, args.length) : 'all';
       if (!arg2) {
         arg2 = 'all'; // if unspecified, set for all.
-      } if (arg2 == 'unc') { // check for short cut.
+      } else if (arg2 == 'unc') { // check for short cut.
         arg2 = 'uncaught';
       }
       excType = arg2;
@@ -2124,7 +2101,7 @@ function SimpleObjectToJSON_(object) {
       var property_value_json;
       switch (typeof property_value) {
         case 'object':
-          if (property_value === null) {
+          if (IS_NULL(property_value)) {
             property_value_json = 'null';
           } else if (typeof property_value.toJSONProtocol == 'function') {
             property_value_json = property_value.toJSONProtocol(true);
@@ -2217,7 +2194,7 @@ function Stringify(x, depth) {
     case "symbol":
       return "Symbol(" + (x.name ? Stringify(x.name, depth) : "") + ")"
     case "object":
-      if (x === null) return "null";
+      if (IS_NULL(x)) return "null";
       if (x.constructor && x.constructor.name === "Array") {
         var elems = [];
         for (var i = 0; i < x.length; ++i) {
@@ -2233,7 +2210,7 @@ function Stringify(x, depth) {
       var props = [];
       for (var name in x) {
         var desc = Object.getOwnPropertyDescriptor(x, name);
-        if (desc === void 0) continue;
+        if (IS_UNDEFINED(desc)) continue;
         if ("value" in desc) {
           props.push(name + ": " + Stringify(desc.value, depth - 1));
         }

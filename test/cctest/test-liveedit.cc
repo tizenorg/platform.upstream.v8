@@ -25,8 +25,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifdef ENABLE_DEBUGGER_SUPPORT
-
 #include <stdlib.h>
 
 #include "v8.h"
@@ -97,7 +95,7 @@ void CompareStringsOneWay(const char* s1, const char* s2,
                           int expected_diff_parameter = -1) {
   StringCompareInput input(s1, s2);
 
-  Zone zone(Isolate::Current());
+  Zone zone(CcTest::i_isolate());
 
   DiffChunkStruct* first_chunk;
   ListDiffOutputWriter writer(&first_chunk, &zone);
@@ -177,5 +175,3 @@ TEST(LiveEditDiffer) {
   CompareStrings("abbabababababaaabbabababababbabbbbbbbababa",
                  "bbbbabababbbabababbbabababababbabbababa");
 }
-
-#endif  // ENABLE_DEBUGGER_SUPPORT

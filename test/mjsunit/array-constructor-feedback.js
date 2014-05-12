@@ -26,7 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --allow-natives-syntax --smi-only-arrays --expose-gc
-// Flags: --track-allocation-sites --noalways-opt
+// Flags: --noalways-opt
 
 // Test element kind of objects.
 // Since --smi-only-arrays affects builtins, its default setting at compile
@@ -82,8 +82,9 @@ function assertKind(expected, obj, name_opt) {
 
 if (support_smi_only_arrays) {
 
-  // Test: If a call site goes megamorphic, it loses the ability to
-  // use allocation site feedback.
+  // Test: If a call site goes megamorphic, it retains the ability to
+  // use allocation site feedback (if FLAG_allocation_site_pretenuring
+  // is on).
   (function() {
     function bar(t, len) {
       return new t(len);
@@ -95,10 +96,9 @@ if (support_smi_only_arrays) {
     assertKind(elements_kind.fast_double, b);
     c = bar(Object, 3);
     b = bar(Array, 10);
-    assertKind(elements_kind.fast_smi_only, b);
-    b[0] = 3.5;
-    c = bar(Array, 10);
-    assertKind(elements_kind.fast_smi_only, c);
+    // TODO(mvstanton): re-enable when FLAG_allocation_site_pretenuring
+    // is on in the build.
+    // assertKind(elements_kind.fast_double, b);
   })();
 
 
@@ -115,26 +115,29 @@ if (support_smi_only_arrays) {
     %OptimizeFunctionOnNextCall(bar0);
     b = bar0(Array);
     assertKind(elements_kind.fast_double, b);
-    assertTrue(2 != %GetOptimizationStatus(bar0));
+    assertOptimized(bar0);
     // bar0 should deopt
     b = bar0(Object);
-    assertTrue(1 != %GetOptimizationStatus(bar0));
+    assertUnoptimized(bar0)
     // When it's re-optimized, we should call through the full stub
     bar0(Array);
     %OptimizeFunctionOnNextCall(bar0);
     b = bar0(Array);
-    // We also lost our ability to record kind feedback, as the site
-    // is megamorphic now.
-    assertKind(elements_kind.fast_smi_only, b);
-    assertTrue(2 != %GetOptimizationStatus(bar0));
-    b[0] = 3.5;
-    c = bar0(Array);
-    assertKind(elements_kind.fast_smi_only, c);
+    // This only makes sense to test if we allow crankshafting
+    if (4 != %GetOptimizationStatus(bar0)) {
+      // We also lost our ability to record kind feedback, as the site
+      // is megamorphic now.
+      assertKind(elements_kind.fast_smi_only, b);
+      assertOptimized(bar0);
+      b[0] = 3.5;
+      c = bar0(Array);
+      assertKind(elements_kind.fast_smi_only, c);
+    }
   })();
 
 
-  // Test: Ensure that bailouts from the stub don't deopt a crankshafted
-  // method with a call to that stub.
+  // Test: Ensure that inlined array calls in crankshaft learn from deopts
+  // based on the move to a dictionary for the array.
   (function() {
     function bar(len) {
       return new Array(len);
@@ -146,15 +149,21 @@ if (support_smi_only_arrays) {
     %OptimizeFunctionOnNextCall(bar);
     a = bar(10);
     assertKind(elements_kind.fast, a);
-    assertTrue(2 != %GetOptimizationStatus(bar));
-    // The stub bails out, but the method call should be fine.
+    assertOptimized(bar);
+    // bar should deopt because the length is too large.
     a = bar(100000);
-    assertTrue(2 != %GetOptimizationStatus(bar));
+    assertUnoptimized(bar);
     assertKind(elements_kind.dictionary, a);
+    // The allocation site now has feedback that means the array constructor
+    // will not be inlined.
+    %OptimizeFunctionOnNextCall(bar);
+    a = bar(100000);
+    assertKind(elements_kind.dictionary, a);
+    assertOptimized(bar);
 
     // If the argument isn't a smi, it bails out as well
     a = bar("oops");
-    assertTrue(2 != %GetOptimizationStatus(bar));
+    assertOptimized(bar);
     assertKind(elements_kind.fast, a);
 
     function barn(one, two, three) {
@@ -165,11 +174,15 @@ if (support_smi_only_arrays) {
     barn(1, 2, 3);
     %OptimizeFunctionOnNextCall(barn);
     barn(1, 2, 3);
-    assertTrue(2 != %GetOptimizationStatus(barn));
+    assertOptimized(barn);
     a = barn(1, "oops", 3);
-    // The stub should bail out but the method should remain optimized.
+    // The method should deopt, but learn from the failure to avoid inlining
+    // the array.
     assertKind(elements_kind.fast, a);
-    assertTrue(2 != %GetOptimizationStatus(barn));
+    assertUnoptimized(barn);
+    %OptimizeFunctionOnNextCall(barn);
+    a = barn(1, "oops", 3);
+    assertOptimized(barn);
   })();
 
 
@@ -186,12 +199,12 @@ if (support_smi_only_arrays) {
     b = bar();
     // This only makes sense to test if we allow crankshafting
     if (4 != %GetOptimizationStatus(bar)) {
-      assertTrue(2 != %GetOptimizationStatus(bar));
+      assertOptimized(bar);
       %DebugPrint(3);
       b[0] = 3.5;
       c = bar();
       assertKind(elements_kind.fast_smi_only, c);
-      assertTrue(2 != %GetOptimizationStatus(bar));
+      assertOptimized(bar);
     }
   })();
 
@@ -213,5 +226,30 @@ if (support_smi_only_arrays) {
     Realm.eval(contextB, "bar2();");
     assertFalse(Realm.eval(contextB, "bar2();") instanceof Array);
     assertTrue(Realm.eval(contextB, "bar2() instanceof Array"));
+  })();
+
+  // Test: create array with packed feedback, then optimize/inline
+  // function. Verify that if we ask for a holey array then we deopt.
+  // Reoptimization will proceed with the correct feedback and we
+  // won't deopt anymore.
+  (function() {
+    function bar(len) { return new Array(len); }
+    bar(0);
+    bar(0);
+    %OptimizeFunctionOnNextCall(bar);
+    a = bar(0);
+    assertOptimized(bar);
+    assertFalse(isHoley(a));
+    a = bar(1);  // ouch!
+    assertUnoptimized(bar);
+    assertTrue(isHoley(a));
+    // Try again
+    %OptimizeFunctionOnNextCall(bar);
+    a = bar(100);
+    assertOptimized(bar);
+    assertTrue(isHoley(a));
+    a = bar(0);
+    assertOptimized(bar);
+    assertTrue(isHoley(a));
   })();
 }

@@ -1,29 +1,6 @@
 // Copyright 2011 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_ARM_CONSTANTS_ARM_H_
 #define V8_ARM_CONSTANTS_ARM_H_
@@ -31,22 +8,6 @@
 // ARM EABI is required.
 #if defined(__arm__) && !defined(__ARM_EABI__)
 #error ARM EABI support is required.
-#endif
-
-#if defined(__ARM_ARCH_7A__) || \
-    defined(__ARM_ARCH_7R__) || \
-    defined(__ARM_ARCH_7__)
-# define CAN_USE_ARMV7_INSTRUCTIONS 1
-#ifndef CAN_USE_VFP3_INSTRUCTIONS
-# define CAN_USE_VFP3_INSTRUCTIONS
-#endif
-#endif
-
-// Simulator should support unaligned access by default.
-#if !defined(__arm__)
-# ifndef CAN_USE_UNALIGNED_ACCESSES
-#  define CAN_USE_UNALIGNED_ACCESSES 1
-# endif
 #endif
 
 namespace v8 {
@@ -65,6 +26,9 @@ inline int DecodeConstantPoolLength(int instr) {
   ASSERT((instr & kConstantPoolMarkerMask) == kConstantPoolMarker);
   return ((instr >> 4) & 0xfff0) | (instr & 0xf);
 }
+
+// Used in code age prologue - ldr(pc, MemOperand(pc, -4))
+const int kCodeAgeJumpInstruction = 0xe51ff004;
 
 // Number of registers in normal ARM mode.
 const int kNumRegisters = 16;
@@ -236,6 +200,8 @@ enum {
   kCoprocessorMask = 15 << 8,
   kOpCodeMask = 15 << 21,  // In data-processing instructions.
   kImm24Mask  = (1 << 24) - 1,
+  kImm16Mask  = (1 << 16) - 1,
+  kImm8Mask  = (1 << 8) - 1,
   kOff12Mask  = (1 << 12) - 1,
   kOff8Mask  = (1 << 8) - 1
 };
@@ -330,6 +296,32 @@ enum LFlag {
   Short = 0 << 22   // Short load/store coprocessor.
 };
 
+
+// NEON data type
+enum NeonDataType {
+  NeonS8 = 0x1,   // U = 0, imm3 = 0b001
+  NeonS16 = 0x2,  // U = 0, imm3 = 0b010
+  NeonS32 = 0x4,  // U = 0, imm3 = 0b100
+  NeonU8 = 1 << 24 | 0x1,   // U = 1, imm3 = 0b001
+  NeonU16 = 1 << 24 | 0x2,  // U = 1, imm3 = 0b010
+  NeonU32 = 1 << 24 | 0x4,   // U = 1, imm3 = 0b100
+  NeonDataTypeSizeMask = 0x7,
+  NeonDataTypeUMask = 1 << 24
+};
+
+enum NeonListType {
+  nlt_1 = 0x7,
+  nlt_2 = 0xA,
+  nlt_3 = 0x6,
+  nlt_4 = 0x2
+};
+
+enum NeonSize {
+  Neon8 = 0x0,
+  Neon16 = 0x1,
+  Neon32 = 0x2,
+  Neon64 = 0x3
+};
 
 // -----------------------------------------------------------------------------
 // Supervisor Call (svc) specific support.
@@ -573,6 +565,7 @@ class Instruction {
   DECLARE_STATIC_TYPED_ACCESSOR(Condition, ConditionField);
 
   inline int TypeValue() const { return Bits(27, 25); }
+  inline int SpecialValue() const { return Bits(27, 23); }
 
   inline int RnValue() const { return Bits(19, 16); }
   DECLARE_STATIC_ACCESSOR(RnValue);

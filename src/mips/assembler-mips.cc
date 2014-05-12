@@ -35,7 +35,7 @@
 
 #include "v8.h"
 
-#if defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_MIPS
 
 #include "mips/assembler-mips-inl.h"
 #include "serialize.h"
@@ -48,6 +48,7 @@ bool CpuFeatures::initialized_ = false;
 #endif
 unsigned CpuFeatures::supported_ = 0;
 unsigned CpuFeatures::found_by_runtime_probing_only_ = 0;
+unsigned CpuFeatures::cross_compile_ = 0;
 
 
 ExternalReference ExternalReference::cpu_features() {
@@ -101,10 +102,11 @@ const char* DoubleRegister::AllocationIndexToString(int index) {
 }
 
 
-void CpuFeatures::Probe() {
+void CpuFeatures::Probe(bool serializer_enabled) {
   unsigned standard_features = (OS::CpuFeaturesImpliedByPlatform() |
                                 CpuFeaturesImpliedByCompiler());
-  ASSERT(supported_ == 0 || supported_ == standard_features);
+  ASSERT(supported_ == 0 ||
+         (supported_ & standard_features) == standard_features);
 #ifdef DEBUG
   initialized_ = true;
 #endif
@@ -114,7 +116,7 @@ void CpuFeatures::Probe() {
   // snapshot.
   supported_ |= standard_features;
 
-  if (Serializer::enabled()) {
+  if (serializer_enabled) {
     // No probing for features if we might serialize (generate snapshot).
     return;
   }
@@ -126,7 +128,8 @@ void CpuFeatures::Probe() {
   supported_ |= static_cast<uint64_t>(1) << FPU;
 #else
   // Probe for additional features not already known to be available.
-  if (OS::MipsCpuHasFeature(FPU)) {
+  CPU cpu;
+  if (cpu.has_fpu()) {
     // This implementation also sets the FPU flags if
     // runtime detection of FPU returns true.
     supported_ |= static_cast<uint64_t>(1) << FPU;
@@ -211,6 +214,11 @@ bool RelocInfo::IsCodedSpecially() {
 }
 
 
+bool RelocInfo::IsInConstantPool() {
+  return false;
+}
+
+
 // Patch the code at the current address with the supplied instructions.
 void RelocInfo::PatchCode(byte* instructions, int instruction_count) {
   Instr* pc = reinterpret_cast<Instr*>(pc_);
@@ -237,15 +245,12 @@ void RelocInfo::PatchCodeWithCall(Address target, int guard_bytes) {
 // See assembler-mips-inl.h for inlined constructors.
 
 Operand::Operand(Handle<Object> handle) {
-#ifdef DEBUG
-  Isolate* isolate = Isolate::Current();
-#endif
   AllowDeferredHandleDereference using_raw_address;
   rm_ = no_reg;
   // Verify all Objects referred by code are NOT in new space.
   Object* obj = *handle;
-  ASSERT(!isolate->heap()->InNewSpace(obj));
   if (obj->IsHeapObject()) {
+    ASSERT(!HeapObject::cast(obj)->GetHeap()->InNewSpace(obj));
     imm32_ = reinterpret_cast<intptr_t>(handle.location());
     rmode_ = RelocInfo::EMBEDDED_OBJECT;
   } else {
@@ -258,6 +263,12 @@ Operand::Operand(Handle<Object> handle) {
 
 MemOperand::MemOperand(Register rm, int32_t offset) : Operand(rm) {
   offset_ = offset;
+}
+
+
+MemOperand::MemOperand(Register rm, int32_t unit, int32_t multiplier,
+                       OffsetAddend offset_addend) : Operand(rm) {
+  offset_ = unit * multiplier + offset_addend;
 }
 
 
@@ -308,11 +319,12 @@ Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
   trampoline_pool_blocked_nesting_ = 0;
   // We leave space (16 * kTrampolineSlotsSize)
   // for BlockTrampolinePoolScope buffer.
-  next_buffer_check_ = kMaxBranchOffset - kTrampolineSlotsSize * 16;
+  next_buffer_check_ = FLAG_force_long_branches
+      ? kMaxInt : kMaxBranchOffset - kTrampolineSlotsSize * 16;
   internal_trampoline_exception_ = false;
   last_bound_pos_ = 0;
 
-  trampoline_emitted_ = false;
+  trampoline_emitted_ = FLAG_force_long_branches;
   unbound_labels_count_ = 0;
   block_buffer_growth_ = false;
 
@@ -327,6 +339,7 @@ void Assembler::GetCode(CodeDesc* desc) {
   desc->buffer_size = buffer_size_;
   desc->instr_size = pc_offset();
   desc->reloc_size = (buffer_ + buffer_size_) - reloc_info_writer.pos();
+  desc->origin = this;
 }
 
 
@@ -501,10 +514,12 @@ bool Assembler::IsBranch(Instr instr) {
       (opcode == COP1 && rs_field == BC1);  // Coprocessor branch.
 }
 
+
 bool Assembler::IsEmittedConstant(Instr instr) {
   uint32_t label_constant = GetLabelConst(instr);
   return label_constant == 0;  // Emitted label const in reg-exp engine.
 }
+
 
 bool Assembler::IsBeq(Instr instr) {
   return GetOpcodeField(instr) == BEQ;
@@ -539,9 +554,11 @@ bool Assembler::IsJal(Instr instr) {
   return GetOpcodeField(instr) == JAL;
 }
 
+
 bool Assembler::IsJr(Instr instr) {
   return GetOpcodeField(instr) == SPECIAL && GetFunctionField(instr) == JR;
 }
+
 
 bool Assembler::IsJalr(Instr instr) {
   return GetOpcodeField(instr) == SPECIAL && GetFunctionField(instr) == JALR;
@@ -825,12 +842,14 @@ void Assembler::next(Label* L) {
   }
 }
 
+
 bool Assembler::is_near(Label* L) {
   if (L->is_bound()) {
     return ((pc_offset() - L->pos()) < kMaxBranchOffset - 4 * kInstrSize);
   }
   return false;
 }
+
 
 // We have to use a temporary register for things that can be relocated even
 // if they can be encoded in the MIPS's 16 bits of immediate-offset instruction
@@ -1341,7 +1360,7 @@ void Assembler::rotrv(Register rd, Register rt, Register rs) {
 // Helper for base-reg + offset, when offset is larger than int16.
 void Assembler::LoadRegPlusOffsetToAt(const MemOperand& src) {
   ASSERT(!src.rm().is(at));
-  lui(at, src.offset_ >> kLuiShift);
+  lui(at, (src.offset_ >> kLuiShift) & kImm16Mask);
   ori(at, at, src.offset_ & kImm16Mask);  // Load 32-bit offset.
   addu(at, at, src.rm());  // Add base register.
 }
@@ -1475,7 +1494,7 @@ void Assembler::break_(uint32_t code, bool break_as_stop) {
 void Assembler::stop(const char* msg, uint32_t code) {
   ASSERT(code > kMaxWatchpointCode);
   ASSERT(code <= kMaxStopCode);
-#if defined(V8_HOST_ARCH_MIPS)
+#if V8_HOST_ARCH_MIPS
   break_(0x54321);
 #else  // V8_HOST_ARCH_MIPS
   BlockTrampolinePoolFor(2);
@@ -1617,6 +1636,15 @@ void Assembler::ext_(Register rt, Register rs, uint16_t pos, uint16_t size) {
 }
 
 
+void Assembler::pref(int32_t hint, const MemOperand& rs) {
+  ASSERT(kArchVariant != kLoongson);
+  ASSERT(is_uint5(hint) && is_uint16(rs.offset_));
+  Instr instr = PREF | (rs.rm().code() << kRsShift) | (hint << kRtShift)
+      | (rs.offset_);
+  emit(instr);
+}
+
+
 //--------Coprocessor-instructions----------------
 
 // Load, store, move.
@@ -1628,10 +1656,12 @@ void Assembler::lwc1(FPURegister fd, const MemOperand& src) {
 void Assembler::ldc1(FPURegister fd, const MemOperand& src) {
   // Workaround for non-8-byte alignment of HeapNumber, convert 64-bit
   // load to two 32-bit loads.
-  GenInstrImmediate(LWC1, src.rm(), fd, src.offset_);
+  GenInstrImmediate(LWC1, src.rm(), fd, src.offset_ +
+      Register::kMantissaOffset);
   FPURegister nextfpreg;
   nextfpreg.setcode(fd.code() + 1);
-  GenInstrImmediate(LWC1, src.rm(), nextfpreg, src.offset_ + 4);
+  GenInstrImmediate(LWC1, src.rm(), nextfpreg, src.offset_ +
+      Register::kExponentOffset);
 }
 
 
@@ -1643,10 +1673,12 @@ void Assembler::swc1(FPURegister fd, const MemOperand& src) {
 void Assembler::sdc1(FPURegister fd, const MemOperand& src) {
   // Workaround for non-8-byte alignment of HeapNumber, convert 64-bit
   // store to two 32-bit stores.
-  GenInstrImmediate(SWC1, src.rm(), fd, src.offset_);
+  GenInstrImmediate(SWC1, src.rm(), fd, src.offset_ +
+      Register::kMantissaOffset);
   FPURegister nextfpreg;
   nextfpreg.setcode(fd.code() + 1);
-  GenInstrImmediate(SWC1, src.rm(), nextfpreg, src.offset_ + 4);
+  GenInstrImmediate(SWC1, src.rm(), nextfpreg, src.offset_ +
+      Register::kExponentOffset);
 }
 
 
@@ -1669,6 +1701,7 @@ void Assembler::cfc1(Register rt, FPUControlRegister fs) {
   GenInstrRegister(COP1, CFC1, rt, fs);
 }
 
+
 void Assembler::DoubleAsTwoUInt32(double d, uint32_t* lo, uint32_t* hi) {
   uint64_t i;
   OS::MemCopy(&i, &d, 8);
@@ -1676,6 +1709,7 @@ void Assembler::DoubleAsTwoUInt32(double d, uint32_t* lo, uint32_t* hi) {
   *lo = i & 0xffffffff;
   *hi = i >> 32;
 }
+
 
 // Arithmetic.
 
@@ -2024,6 +2058,14 @@ void Assembler::dd(uint32_t data) {
 }
 
 
+void Assembler::emit_code_stub_address(Code* stub) {
+  CheckBuffer();
+  *reinterpret_cast<uint32_t*>(pc_) =
+      reinterpret_cast<uint32_t>(stub->instruction_start());
+  pc_ += sizeof(uint32_t);
+}
+
+
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
   // We do not try to reuse pool constants.
   RelocInfo rinfo(pc_, rmode, data, NULL);
@@ -2038,12 +2080,7 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
   if (!RelocInfo::IsNone(rinfo.rmode())) {
     // Don't record external references unless the heap will be serialized.
     if (rmode == RelocInfo::EXTERNAL_REFERENCE) {
-#ifdef DEBUG
-      if (!Serializer::enabled()) {
-        Serializer::TooLateToEnableNow();
-      }
-#endif
-      if (!Serializer::enabled() && !emit_debug_code()) {
+      if (!Serializer::enabled(isolate()) && !emit_debug_code()) {
         return;
       }
     }
@@ -2195,8 +2232,7 @@ void Assembler::set_target_address_at(Address pc, Address target) {
 
   Instr instr3 = instr_at(pc + 2 * kInstrSize);
   uint32_t ipc = reinterpret_cast<uint32_t>(pc + 3 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(itarget) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((ipc ^ itarget) >> (kImm26Bits + kImmFieldShift)) == 0;
   uint32_t target_field =
       static_cast<uint32_t>(itarget & kJumpAddrMask) >> kImmFieldShift;
   bool patched_jump = false;
@@ -2257,6 +2293,7 @@ void Assembler::set_target_address_at(Address pc, Address target) {
   CPU::FlushICache(pc, (patched_jump ? 3 : 2) * sizeof(int32_t));
 }
 
+
 void Assembler::JumpLabelToJumpRegister(Address pc) {
   // Address pc points to lui/ori instructions.
   // Jump to label may follow at pc + 2 * kInstrSize.
@@ -2289,6 +2326,21 @@ void Assembler::JumpLabelToJumpRegister(Address pc) {
       CPU::FlushICache(pc+2, sizeof(Address));
   }
 }
+
+
+Handle<ConstantPoolArray> Assembler::NewConstantPool(Isolate* isolate) {
+  // No out-of-line constant pool support.
+  ASSERT(!FLAG_enable_ool_constant_pool);
+  return isolate->factory()->empty_constant_pool_array();
+}
+
+
+void Assembler::PopulateConstantPool(ConstantPoolArray* constant_pool) {
+  // No out-of-line constant pool support.
+  ASSERT(!FLAG_enable_ool_constant_pool);
+  return;
+}
+
 
 } }  // namespace v8::internal
 

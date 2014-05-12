@@ -1,34 +1,12 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "v8.h"
 
 #include "bootstrapper.h"
 #include "code-stubs.h"
+#include "cpu-profiler.h"
 #include "stub-cache.h"
 #include "factory.h"
 #include "gdb-jit.h"
@@ -40,17 +18,18 @@ namespace internal {
 
 CodeStubInterfaceDescriptor::CodeStubInterfaceDescriptor()
     : register_param_count_(-1),
-      stack_parameter_count_(NULL),
+      stack_parameter_count_(no_reg),
       hint_stack_parameter_count_(-1),
       function_mode_(NOT_JS_FUNCTION_STUB_MODE),
       register_params_(NULL),
       deoptimization_handler_(NULL),
-      miss_handler_(IC_Utility(IC::kUnreachable), Isolate::Current()),
+      handler_arguments_mode_(DONT_PASS_ARGUMENTS),
+      miss_handler_(),
       has_miss_handler_(false) { }
 
 
-bool CodeStub::FindCodeInCache(Code** code_out, Isolate* isolate) {
-  UnseededNumberDictionary* stubs = isolate->heap()->code_stubs();
+bool CodeStub::FindCodeInCache(Code** code_out) {
+  UnseededNumberDictionary* stubs = isolate()->heap()->code_stubs();
   int index = stubs->FindEntry(GetKey());
   if (index != UnseededNumberDictionary::kNotFound) {
     *code_out = Code::cast(stubs->ValueAt(index));
@@ -70,11 +49,12 @@ SmartArrayPointer<const char> CodeStub::GetName() {
 }
 
 
-void CodeStub::RecordCodeGeneration(Code* code, Isolate* isolate) {
+void CodeStub::RecordCodeGeneration(Handle<Code> code) {
+  IC::RegisterWeakMapDependency(code);
   SmartArrayPointer<const char> name = GetName();
-  PROFILE(isolate, CodeCreateEvent(Logger::STUB_TAG, code, *name));
-  GDBJIT(AddCode(GDBJITInterface::STUB, *name, code));
-  Counters* counters = isolate->counters();
+  PROFILE(isolate(), CodeCreateEvent(Logger::STUB_TAG, *code, name.get()));
+  GDBJIT(AddCode(GDBJITInterface::STUB, name.get(), *code));
+  Counters* counters = isolate()->counters();
   counters->total_stubs_code_size()->Increment(code->instruction_size());
 }
 
@@ -84,19 +64,24 @@ Code::Kind CodeStub::GetCodeKind() const {
 }
 
 
+Handle<Code> CodeStub::GetCodeCopy(const Code::FindAndReplacePattern& pattern) {
+  Handle<Code> ic = GetCode();
+  ic = isolate()->factory()->CopyCode(ic);
+  ic->FindAndReplace(pattern);
+  RecordCodeGeneration(ic);
+  return ic;
+}
+
+
 Handle<Code> PlatformCodeStub::GenerateCode() {
-  Isolate* isolate = Isolate::Current();
-  Factory* factory = isolate->factory();
+  Factory* factory = isolate()->factory();
 
   // Generate the new code.
-  MacroAssembler masm(isolate, NULL, 256);
+  MacroAssembler masm(isolate(), NULL, 256);
 
   {
     // Update the static counter each time a new code stub is generated.
-    isolate->counters()->code_stubs()->Increment();
-
-    // Nested stubs are not allowed for leaves.
-    AllowStubCallsScope allow_scope(&masm, false);
+    isolate()->counters()->code_stubs()->Increment();
 
     // Generate the code for the stub.
     masm.set_generating_stub(true);
@@ -113,37 +98,45 @@ Handle<Code> PlatformCodeStub::GenerateCode() {
       GetCodeKind(),
       GetICState(),
       GetExtraICState(),
-      GetStubType(),
-      GetStubFlags());
+      GetStubType());
   Handle<Code> new_object = factory->NewCode(
       desc, flags, masm.CodeObject(), NeedsImmovableCode());
   return new_object;
 }
 
 
-Handle<Code> CodeStub::GetCode(Isolate* isolate) {
-  Factory* factory = isolate->factory();
-  Heap* heap = isolate->heap();
+void CodeStub::VerifyPlatformFeatures() {
+  ASSERT(CpuFeatures::VerifyCrossCompiling());
+}
+
+
+Handle<Code> CodeStub::GetCode() {
+  Heap* heap = isolate()->heap();
   Code* code;
   if (UseSpecialCache()
-      ? FindCodeInSpecialCache(&code, isolate)
-      : FindCodeInCache(&code, isolate)) {
-    ASSERT(IsPregenerated() == code->is_pregenerated());
+      ? FindCodeInSpecialCache(&code)
+      : FindCodeInCache(&code)) {
+    ASSERT(GetCodeKind() == code->kind());
     return Handle<Code>(code);
   }
 
+#ifdef DEBUG
+  VerifyPlatformFeatures();
+#endif
+
   {
-    HandleScope scope(isolate);
+    HandleScope scope(isolate());
 
     Handle<Code> new_object = GenerateCode();
     new_object->set_major_key(MajorKey());
     FinishCode(new_object);
-    RecordCodeGeneration(*new_object, isolate);
+    RecordCodeGeneration(new_object);
 
 #ifdef ENABLE_DISASSEMBLER
     if (FLAG_print_code_stubs) {
-      new_object->Disassemble(*GetName());
-      PrintF("\n");
+      CodeTracer::Scope trace_scope(isolate()->GetCodeTracer());
+      new_object->Disassemble(GetName().get(), trace_scope.file());
+      PrintF(trace_scope.file(), "\n");
     }
 #endif
 
@@ -152,7 +145,7 @@ Handle<Code> CodeStub::GetCode(Isolate* isolate) {
     } else {
       // Update the dictionary and the root in Heap.
       Handle<UnseededNumberDictionary> dict =
-          factory->DictionaryAtNumberPut(
+          UnseededNumberDictionary::AtNumberPut(
               Handle<UnseededNumberDictionary>(heap->code_stubs()),
               GetKey(),
               new_object);
@@ -165,7 +158,7 @@ Handle<Code> CodeStub::GetCode(Isolate* isolate) {
   ASSERT(!NeedsImmovableCode() ||
          heap->lo_space()->Contains(code) ||
          heap->code_space()->FirstPage()->Contains(code->address()));
-  return Handle<Code>(code, isolate);
+  return Handle<Code>(code, isolate());
 }
 
 
@@ -175,6 +168,7 @@ const char* CodeStub::MajorName(CodeStub::Major major_key,
 #define DEF_CASE(name) case name: return #name "Stub";
     CODE_STUB_LIST(DEF_CASE)
 #undef DEF_CASE
+    case UninitializedMajorKey: return "<UninitializedMajorKey>Stub";
     default:
       if (!allow_unknown_keys) {
         UNREACHABLE();
@@ -184,124 +178,81 @@ const char* CodeStub::MajorName(CodeStub::Major major_key,
 }
 
 
-void CodeStub::PrintName(StringStream* stream) {
+void CodeStub::PrintBaseName(StringStream* stream) {
   stream->Add("%s", MajorName(MajorKey(), false));
 }
 
 
-void BinaryOpStub::Generate(MacroAssembler* masm) {
-  // Explicitly allow generation of nested stubs. It is safe here because
-  // generation code does not use any raw pointers.
-  AllowStubCallsScope allow_stub_calls(masm, true);
+void CodeStub::PrintName(StringStream* stream) {
+  PrintBaseName(stream);
+  PrintState(stream);
+}
 
-  BinaryOpIC::TypeInfo operands_type = Max(left_type_, right_type_);
-  if (left_type_ == BinaryOpIC::ODDBALL && right_type_ == BinaryOpIC::ODDBALL) {
-    // The OddballStub handles a number and an oddball, not two oddballs.
-    operands_type = BinaryOpIC::GENERIC;
+
+// static
+void BinaryOpICStub::GenerateAheadOfTime(Isolate* isolate) {
+  // Generate the uninitialized versions of the stub.
+  for (int op = Token::BIT_OR; op <= Token::MOD; ++op) {
+    for (int mode = NO_OVERWRITE; mode <= OVERWRITE_RIGHT; ++mode) {
+      BinaryOpICStub stub(isolate,
+                          static_cast<Token::Value>(op),
+                          static_cast<OverwriteMode>(mode));
+      stub.GetCode();
+    }
   }
-  switch (operands_type) {
-    case BinaryOpIC::UNINITIALIZED:
-      GenerateTypeTransition(masm);
-      break;
-    case BinaryOpIC::SMI:
-      GenerateSmiStub(masm);
-      break;
-    case BinaryOpIC::INT32:
-      GenerateInt32Stub(masm);
-      break;
-    case BinaryOpIC::NUMBER:
-      GenerateNumberStub(masm);
-      break;
-    case BinaryOpIC::ODDBALL:
-      GenerateOddballStub(masm);
-      break;
-    case BinaryOpIC::STRING:
-      GenerateStringStub(masm);
-      break;
-    case BinaryOpIC::GENERIC:
-      GenerateGeneric(masm);
-      break;
-    default:
-      UNREACHABLE();
+
+  // Generate special versions of the stub.
+  BinaryOpIC::State::GenerateAheadOfTime(isolate, &GenerateAheadOfTime);
+}
+
+
+void BinaryOpICStub::PrintState(StringStream* stream) {
+  state_.Print(stream);
+}
+
+
+// static
+void BinaryOpICStub::GenerateAheadOfTime(Isolate* isolate,
+                                         const BinaryOpIC::State& state) {
+  BinaryOpICStub stub(isolate, state);
+  stub.GetCode();
+}
+
+
+// static
+void BinaryOpICWithAllocationSiteStub::GenerateAheadOfTime(Isolate* isolate) {
+  // Generate special versions of the stub.
+  BinaryOpIC::State::GenerateAheadOfTime(isolate, &GenerateAheadOfTime);
+}
+
+
+void BinaryOpICWithAllocationSiteStub::PrintState(StringStream* stream) {
+  state_.Print(stream);
+}
+
+
+// static
+void BinaryOpICWithAllocationSiteStub::GenerateAheadOfTime(
+    Isolate* isolate, const BinaryOpIC::State& state) {
+  if (state.CouldCreateAllocationMementos()) {
+    BinaryOpICWithAllocationSiteStub stub(isolate, state);
+    stub.GetCode();
   }
 }
 
 
-#define __ ACCESS_MASM(masm)
-
-
-void BinaryOpStub::GenerateCallRuntime(MacroAssembler* masm) {
-  switch (op_) {
-    case Token::ADD:
-      __ InvokeBuiltin(Builtins::ADD, CALL_FUNCTION);
-      break;
-    case Token::SUB:
-      __ InvokeBuiltin(Builtins::SUB, CALL_FUNCTION);
-      break;
-    case Token::MUL:
-      __ InvokeBuiltin(Builtins::MUL, CALL_FUNCTION);
-      break;
-    case Token::DIV:
-      __ InvokeBuiltin(Builtins::DIV, CALL_FUNCTION);
-      break;
-    case Token::MOD:
-      __ InvokeBuiltin(Builtins::MOD, CALL_FUNCTION);
-      break;
-    case Token::BIT_OR:
-      __ InvokeBuiltin(Builtins::BIT_OR, CALL_FUNCTION);
-      break;
-    case Token::BIT_AND:
-      __ InvokeBuiltin(Builtins::BIT_AND, CALL_FUNCTION);
-      break;
-    case Token::BIT_XOR:
-      __ InvokeBuiltin(Builtins::BIT_XOR, CALL_FUNCTION);
-      break;
-    case Token::SAR:
-      __ InvokeBuiltin(Builtins::SAR, CALL_FUNCTION);
-      break;
-    case Token::SHR:
-      __ InvokeBuiltin(Builtins::SHR, CALL_FUNCTION);
-      break;
-    case Token::SHL:
-      __ InvokeBuiltin(Builtins::SHL, CALL_FUNCTION);
-      break;
-    default:
-      UNREACHABLE();
+void StringAddStub::PrintBaseName(StringStream* stream) {
+  stream->Add("StringAddStub");
+  if ((flags() & STRING_ADD_CHECK_BOTH) == STRING_ADD_CHECK_BOTH) {
+    stream->Add("_CheckBoth");
+  } else if ((flags() & STRING_ADD_CHECK_LEFT) == STRING_ADD_CHECK_LEFT) {
+    stream->Add("_CheckLeft");
+  } else if ((flags() & STRING_ADD_CHECK_RIGHT) == STRING_ADD_CHECK_RIGHT) {
+    stream->Add("_CheckRight");
   }
-}
-
-
-#undef __
-
-
-void BinaryOpStub::PrintName(StringStream* stream) {
-  const char* op_name = Token::Name(op_);
-  const char* overwrite_name;
-  switch (mode_) {
-    case NO_OVERWRITE: overwrite_name = "Alloc"; break;
-    case OVERWRITE_RIGHT: overwrite_name = "OverwriteRight"; break;
-    case OVERWRITE_LEFT: overwrite_name = "OverwriteLeft"; break;
-    default: overwrite_name = "UnknownOverwrite"; break;
+  if (pretenure_flag() == TENURED) {
+    stream->Add("_Tenured");
   }
-  stream->Add("BinaryOpStub_%s_%s_%s+%s",
-              op_name,
-              overwrite_name,
-              BinaryOpIC::GetName(left_type_),
-              BinaryOpIC::GetName(right_type_));
-}
-
-
-void BinaryOpStub::GenerateStringStub(MacroAssembler* masm) {
-  ASSERT(left_type_ == BinaryOpIC::STRING || right_type_ == BinaryOpIC::STRING);
-  ASSERT(op_ == Token::ADD);
-  if (left_type_ == BinaryOpIC::STRING && right_type_ == BinaryOpIC::STRING) {
-    GenerateBothStringStub(masm);
-    return;
-  }
-  // Try to add arguments as strings, otherwise, transition to the generic
-  // BinaryOpIC type.
-  GenerateAddStrings(masm);
-  GenerateTypeTransition(masm);
 }
 
 
@@ -338,8 +289,8 @@ void ICCompareStub::AddToSpecialCache(Handle<Code> new_object) {
 }
 
 
-bool ICCompareStub::FindCodeInSpecialCache(Code** code_out, Isolate* isolate) {
-  Factory* factory = isolate->factory();
+bool ICCompareStub::FindCodeInSpecialCache(Code** code_out) {
+  Factory* factory = isolate()->factory();
   Code::Flags flags = Code::ComputeFlags(
       GetCodeKind(),
       UNINITIALIZED);
@@ -350,7 +301,7 @@ bool ICCompareStub::FindCodeInSpecialCache(Code** code_out, Isolate* isolate) {
             *factory->strict_compare_ic_string() :
             *factory->compare_ic_string(),
         flags),
-      isolate);
+      isolate());
   if (probe->IsCode()) {
     *code_out = Code::cast(*probe);
 #ifdef DEBUG
@@ -430,8 +381,9 @@ void ICCompareStub::Generate(MacroAssembler* masm) {
 }
 
 
-void CompareNilICStub::Record(Handle<Object> object) {
-  ASSERT(state_ != State::Generic());
+void CompareNilICStub::UpdateStatus(Handle<Object> object) {
+  ASSERT(!state_.Contains(GENERIC));
+  State old_state(state_);
   if (object->IsNull()) {
     state_.Add(NULL_TYPE);
   } else if (object->IsUndefined()) {
@@ -439,37 +391,48 @@ void CompareNilICStub::Record(Handle<Object> object) {
   } else if (object->IsUndetectableObject() ||
              object->IsOddball() ||
              !object->IsHeapObject()) {
-    state_ = State::Generic();
+    state_.RemoveAll();
+    state_.Add(GENERIC);
   } else if (IsMonomorphic()) {
-    state_ = State::Generic();
+    state_.RemoveAll();
+    state_.Add(GENERIC);
   } else {
     state_.Add(MONOMORPHIC_MAP);
   }
+  TraceTransition(old_state, state_);
 }
 
 
-void CompareNilICStub::State::TraceTransition(State to) const {
-  #ifdef DEBUG
+template<class StateType>
+void HydrogenCodeStub::TraceTransition(StateType from, StateType to) {
+  // Note: Although a no-op transition is semantically OK, it is hinting at a
+  // bug somewhere in our state transition machinery.
+  ASSERT(from != to);
   if (!FLAG_trace_ic) return;
   char buffer[100];
   NoAllocationStringAllocator allocator(buffer,
                                         static_cast<unsigned>(sizeof(buffer)));
   StringStream stream(&allocator);
-  stream.Add("[CompareNilIC : ");
-  Print(&stream);
+  stream.Add("[");
+  PrintBaseName(&stream);
+  stream.Add(": ");
+  from.Print(&stream);
   stream.Add("=>");
   to.Print(&stream);
   stream.Add("]\n");
   stream.OutputToStdOut();
-  #endif
 }
 
 
-void CompareNilICStub::PrintName(StringStream* stream) {
-  stream->Add("CompareNilICStub_");
+void CompareNilICStub::PrintBaseName(StringStream* stream) {
+  CodeStub::PrintBaseName(stream);
+  stream->Add((nil_value_ == kNullValue) ? "(NullValue)":
+                                           "(UndefinedValue)");
+}
+
+
+void CompareNilICStub::PrintState(StringStream* stream) {
   state_.Print(stream);
-  stream->Add((nil_value_ == kNullValue) ? "(NullValue|":
-                                           "(UndefinedValue|");
 }
 
 
@@ -480,38 +443,43 @@ void CompareNilICStub::State::Print(StringStream* stream) const {
   if (Contains(UNDEFINED)) printer.Add("Undefined");
   if (Contains(NULL_TYPE)) printer.Add("Null");
   if (Contains(MONOMORPHIC_MAP)) printer.Add("MonomorphicMap");
-  if (Contains(UNDETECTABLE)) printer.Add("Undetectable");
   if (Contains(GENERIC)) printer.Add("Generic");
   stream->Add(")");
 }
 
 
-Handle<Type> CompareNilICStub::StateToType(
-    Isolate* isolate,
-    State state,
-    Handle<Map> map) {
-  if (state.Contains(CompareNilICStub::GENERIC)) {
-    return handle(Type::Any(), isolate);
+Type* CompareNilICStub::GetType(Zone* zone, Handle<Map> map) {
+  if (state_.Contains(CompareNilICStub::GENERIC)) {
+    return Type::Any(zone);
   }
 
-  Handle<Type> result(Type::None(), isolate);
-  if (state.Contains(CompareNilICStub::UNDEFINED)) {
-    result = handle(Type::Union(result, handle(Type::Undefined(), isolate)),
-                    isolate);
+  Type* result = Type::None(zone);
+  if (state_.Contains(CompareNilICStub::UNDEFINED)) {
+    result = Type::Union(result, Type::Undefined(zone), zone);
   }
-  if (state.Contains(CompareNilICStub::NULL_TYPE)) {
-    result = handle(Type::Union(result, handle(Type::Null(), isolate)),
-                    isolate);
+  if (state_.Contains(CompareNilICStub::NULL_TYPE)) {
+    result = Type::Union(result, Type::Null(zone), zone);
   }
-  if (state.Contains(CompareNilICStub::UNDETECTABLE)) {
-    result = handle(Type::Union(result, handle(Type::Undetectable(), isolate)),
-                    isolate);
-  } else if (state.Contains(CompareNilICStub::MONOMORPHIC_MAP)) {
-    Type* type = map.is_null() ? Type::Detectable() : Type::Class(map);
-    result = handle(Type::Union(result, handle(type, isolate)), isolate);
+  if (state_.Contains(CompareNilICStub::MONOMORPHIC_MAP)) {
+    Type* type =
+        map.is_null() ? Type::Detectable(zone) : Type::Class(map, zone);
+    result = Type::Union(result, type, zone);
   }
 
   return result;
+}
+
+
+Type* CompareNilICStub::GetInputType(Zone* zone, Handle<Map> map) {
+  Type* output_type = GetType(zone, map);
+  Type* nil_type =
+      nil_value_ == kNullValue ? Type::Null(zone) : Type::Undefined(zone);
+  return Type::Union(output_type, nil_type, zone);
+}
+
+
+void CallICStub::PrintState(StringStream* stream) {
+  state_.Print(stream);
 }
 
 
@@ -546,8 +514,15 @@ void JSEntryStub::FinishCode(Handle<Code> code) {
 }
 
 
-void KeyedLoadDictionaryElementStub::Generate(MacroAssembler* masm) {
+void KeyedLoadDictionaryElementPlatformStub::Generate(
+    MacroAssembler* masm) {
   KeyedLoadStubCompiler::GenerateLoadDictionaryElement(masm);
+}
+
+
+void CreateAllocationSiteStub::GenerateAheadOfTime(Isolate* isolate) {
+  CreateAllocationSiteStub stub(isolate);
+  stub.GetCode();
 }
 
 
@@ -556,34 +531,21 @@ void KeyedStoreElementStub::Generate(MacroAssembler* masm) {
     case FAST_ELEMENTS:
     case FAST_HOLEY_ELEMENTS:
     case FAST_SMI_ELEMENTS:
-    case FAST_HOLEY_SMI_ELEMENTS: {
-      KeyedStoreStubCompiler::GenerateStoreFastElement(masm,
-                                                       is_js_array_,
-                                                       elements_kind_,
-                                                       store_mode_);
-    }
-      break;
+    case FAST_HOLEY_SMI_ELEMENTS:
     case FAST_DOUBLE_ELEMENTS:
     case FAST_HOLEY_DOUBLE_ELEMENTS:
-      KeyedStoreStubCompiler::GenerateStoreFastDoubleElement(masm,
-                                                             is_js_array_,
-                                                             store_mode_);
-      break;
-    case EXTERNAL_BYTE_ELEMENTS:
-    case EXTERNAL_UNSIGNED_BYTE_ELEMENTS:
-    case EXTERNAL_SHORT_ELEMENTS:
-    case EXTERNAL_UNSIGNED_SHORT_ELEMENTS:
-    case EXTERNAL_INT_ELEMENTS:
-    case EXTERNAL_UNSIGNED_INT_ELEMENTS:
-    case EXTERNAL_FLOAT_ELEMENTS:
-    case EXTERNAL_DOUBLE_ELEMENTS:
-    case EXTERNAL_PIXEL_ELEMENTS:
-      KeyedStoreStubCompiler::GenerateStoreExternalArray(masm, elements_kind_);
+#define TYPED_ARRAY_CASE(Type, type, TYPE, ctype, size) \
+    case EXTERNAL_##TYPE##_ELEMENTS:                    \
+    case TYPE##_ELEMENTS:
+
+    TYPED_ARRAYS(TYPED_ARRAY_CASE)
+#undef TYPED_ARRAY_CASE
+      UNREACHABLE();
       break;
     case DICTIONARY_ELEMENTS:
       KeyedStoreStubCompiler::GenerateStoreDictionaryElement(masm);
       break;
-    case NON_STRICT_ARGUMENTS_ELEMENTS:
+    case SLOPPY_ARGUMENTS_ELEMENTS:
       UNREACHABLE();
       break;
   }
@@ -594,8 +556,8 @@ void ArgumentsAccessStub::PrintName(StringStream* stream) {
   stream->Add("ArgumentsAccessStub_");
   switch (type_) {
     case READ_ELEMENT: stream->Add("ReadElement"); break;
-    case NEW_NON_STRICT_FAST: stream->Add("NewNonStrictFast"); break;
-    case NEW_NON_STRICT_SLOW: stream->Add("NewNonStrictSlow"); break;
+    case NEW_SLOPPY_FAST: stream->Add("NewSloppyFast"); break;
+    case NEW_SLOPPY_SLOW: stream->Add("NewSloppySlow"); break;
     case NEW_STRICT: stream->Add("NewStrict"); break;
   }
 }
@@ -603,8 +565,6 @@ void ArgumentsAccessStub::PrintName(StringStream* stream) {
 
 void CallFunctionStub::PrintName(StringStream* stream) {
   stream->Add("CallFunctionStub_Args%d", argc_);
-  if (ReceiverMightBeImplicit()) stream->Add("_Implicit");
-  if (RecordCallTarget()) stream->Add("_Recording");
 }
 
 
@@ -614,16 +574,37 @@ void CallConstructStub::PrintName(StringStream* stream) {
 }
 
 
-bool ToBooleanStub::Record(Handle<Object> object) {
+void ArrayConstructorStub::PrintName(StringStream* stream) {
+  stream->Add("ArrayConstructorStub");
+  switch (argument_count_) {
+    case ANY: stream->Add("_Any"); break;
+    case NONE: stream->Add("_None"); break;
+    case ONE: stream->Add("_One"); break;
+    case MORE_THAN_ONE: stream->Add("_More_Than_One"); break;
+  }
+}
+
+
+void ArrayConstructorStubBase::BasePrintName(const char* name,
+                                             StringStream* stream) {
+  stream->Add(name);
+  stream->Add("_");
+  stream->Add(ElementsKindToString(elements_kind()));
+  if (override_mode() == DISABLE_ALLOCATION_SITES) {
+    stream->Add("_DISABLE_ALLOCATION_SITES");
+  }
+}
+
+
+bool ToBooleanStub::UpdateStatus(Handle<Object> object) {
   Types old_types(types_);
-  bool to_boolean_value = types_.Record(object);
-  old_types.TraceTransition(types_);
+  bool to_boolean_value = types_.UpdateStatus(object);
+  TraceTransition(old_types, types_);
   return to_boolean_value;
 }
 
 
-void ToBooleanStub::PrintName(StringStream* stream) {
-  stream->Add("ToBooleanStub_");
+void ToBooleanStub::PrintState(StringStream* stream) {
   types_.Print(stream);
 }
 
@@ -644,24 +625,7 @@ void ToBooleanStub::Types::Print(StringStream* stream) const {
 }
 
 
-void ToBooleanStub::Types::TraceTransition(Types to) const {
-  #ifdef DEBUG
-  if (!FLAG_trace_ic) return;
-  char buffer[100];
-  NoAllocationStringAllocator allocator(buffer,
-                                        static_cast<unsigned>(sizeof(buffer)));
-  StringStream stream(&allocator);
-  stream.Add("[ToBooleanIC : ");
-  Print(&stream);
-  stream.Add("=>");
-  to.Print(&stream);
-  stream.Add("]\n");
-  stream.OutputToStdOut();
-  #endif
-}
-
-
-bool ToBooleanStub::Types::Record(Handle<Object> object) {
+bool ToBooleanStub::Types::UpdateStatus(Handle<Object> object) {
   if (object->IsUndefined()) {
     Add(UNDEFINED);
     return false;
@@ -711,55 +675,18 @@ bool ToBooleanStub::Types::CanBeUndetectable() const {
 }
 
 
-void ElementsTransitionAndStoreStub::Generate(MacroAssembler* masm) {
-  Label fail;
-  AllocationSiteMode mode = AllocationSiteInfo::GetMode(from_, to_);
-  ASSERT(!IsFastHoleyElementsKind(from_) || IsFastHoleyElementsKind(to_));
-  if (!FLAG_trace_elements_transitions) {
-    if (IsFastSmiOrObjectElementsKind(to_)) {
-      if (IsFastSmiOrObjectElementsKind(from_)) {
-        ElementsTransitionGenerator::
-            GenerateMapChangeElementsTransition(masm, mode, &fail);
-      } else if (IsFastDoubleElementsKind(from_)) {
-        ASSERT(!IsFastSmiElementsKind(to_));
-        ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, &fail);
-      } else {
-        UNREACHABLE();
-      }
-      KeyedStoreStubCompiler::GenerateStoreFastElement(masm,
-                                                       is_jsarray_,
-                                                       to_,
-                                                       store_mode_);
-    } else if (IsFastSmiElementsKind(from_) &&
-               IsFastDoubleElementsKind(to_)) {
-      ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, &fail);
-      KeyedStoreStubCompiler::GenerateStoreFastDoubleElement(masm,
-                                                             is_jsarray_,
-                                                             store_mode_);
-    } else if (IsFastDoubleElementsKind(from_)) {
-      ASSERT(to_ == FAST_HOLEY_DOUBLE_ELEMENTS);
-      ElementsTransitionGenerator::
-          GenerateMapChangeElementsTransition(masm, mode, &fail);
-    } else {
-      UNREACHABLE();
-    }
-  }
-  masm->bind(&fail);
-  KeyedStoreIC::GenerateRuntimeSetProperty(masm, strict_mode_);
-}
-
-
 void StubFailureTrampolineStub::GenerateAheadOfTime(Isolate* isolate) {
-  StubFailureTrampolineStub stub1(NOT_JS_FUNCTION_STUB_MODE);
-  StubFailureTrampolineStub stub2(JS_FUNCTION_STUB_MODE);
-  stub1.GetCode(isolate)->set_is_pregenerated(true);
-  stub2.GetCode(isolate)->set_is_pregenerated(true);
+  StubFailureTrampolineStub stub1(isolate, NOT_JS_FUNCTION_STUB_MODE);
+  StubFailureTrampolineStub stub2(isolate, JS_FUNCTION_STUB_MODE);
+  stub1.GetCode();
+  stub2.GetCode();
 }
 
 
 void ProfileEntryHookStub::EntryHookTrampoline(intptr_t function,
-                                               intptr_t stack_pointer) {
-  FunctionEntryHook entry_hook = Isolate::Current()->function_entry_hook();
+                                               intptr_t stack_pointer,
+                                               Isolate* isolate) {
+  FunctionEntryHook entry_hook = isolate->function_entry_hook();
   ASSERT(entry_hook != NULL);
   entry_hook(function, stack_pointer);
 }
@@ -770,29 +697,86 @@ static void InstallDescriptor(Isolate* isolate, HydrogenCodeStub* stub) {
   CodeStubInterfaceDescriptor* descriptor =
       isolate->code_stub_interface_descriptor(major_key);
   if (!descriptor->initialized()) {
-    stub->InitializeInterfaceDescriptor(isolate, descriptor);
+    stub->InitializeInterfaceDescriptor(descriptor);
   }
 }
 
 
 void ArrayConstructorStubBase::InstallDescriptors(Isolate* isolate) {
-  ArrayNoArgumentConstructorStub stub1(GetInitialFastElementsKind());
+  ArrayNoArgumentConstructorStub stub1(isolate, GetInitialFastElementsKind());
   InstallDescriptor(isolate, &stub1);
-  ArraySingleArgumentConstructorStub stub2(GetInitialFastElementsKind());
+  ArraySingleArgumentConstructorStub stub2(isolate,
+                                           GetInitialFastElementsKind());
   InstallDescriptor(isolate, &stub2);
-  ArrayNArgumentsConstructorStub stub3(GetInitialFastElementsKind());
+  ArrayNArgumentsConstructorStub stub3(isolate, GetInitialFastElementsKind());
   InstallDescriptor(isolate, &stub3);
 }
 
 
+void NumberToStringStub::InstallDescriptors(Isolate* isolate) {
+  NumberToStringStub stub(isolate);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+void FastNewClosureStub::InstallDescriptors(Isolate* isolate) {
+  FastNewClosureStub stub(isolate, STRICT, false);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+void FastNewContextStub::InstallDescriptors(Isolate* isolate) {
+  FastNewContextStub stub(isolate, FastNewContextStub::kMaximumSlots);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void FastCloneShallowArrayStub::InstallDescriptors(Isolate* isolate) {
+  FastCloneShallowArrayStub stub(isolate,
+                                 FastCloneShallowArrayStub::CLONE_ELEMENTS,
+                                 DONT_TRACK_ALLOCATION_SITE, 0);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void BinaryOpICStub::InstallDescriptors(Isolate* isolate) {
+  BinaryOpICStub stub(isolate, Token::ADD, NO_OVERWRITE);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void BinaryOpWithAllocationSiteStub::InstallDescriptors(Isolate* isolate) {
+  BinaryOpWithAllocationSiteStub stub(isolate, Token::ADD, NO_OVERWRITE);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void StringAddStub::InstallDescriptors(Isolate* isolate) {
+  StringAddStub stub(isolate, STRING_ADD_CHECK_NONE, NOT_TENURED);
+  InstallDescriptor(isolate, &stub);
+}
+
+
+// static
+void RegExpConstructResultStub::InstallDescriptors(Isolate* isolate) {
+  RegExpConstructResultStub stub(isolate);
+  InstallDescriptor(isolate, &stub);
+}
+
+
 ArrayConstructorStub::ArrayConstructorStub(Isolate* isolate)
-    : argument_count_(ANY) {
+    : PlatformCodeStub(isolate), argument_count_(ANY) {
   ArrayConstructorStubBase::GenerateStubsAheadOfTime(isolate);
 }
 
 
 ArrayConstructorStub::ArrayConstructorStub(Isolate* isolate,
-                                           int argument_count) {
+                                           int argument_count)
+    : PlatformCodeStub(isolate) {
   if (argument_count == 0) {
     argument_count_ = NONE;
   } else if (argument_count == 1) {
@@ -807,16 +791,16 @@ ArrayConstructorStub::ArrayConstructorStub(Isolate* isolate,
 
 
 void InternalArrayConstructorStubBase::InstallDescriptors(Isolate* isolate) {
-  InternalArrayNoArgumentConstructorStub stub1(FAST_ELEMENTS);
+  InternalArrayNoArgumentConstructorStub stub1(isolate, FAST_ELEMENTS);
   InstallDescriptor(isolate, &stub1);
-  InternalArraySingleArgumentConstructorStub stub2(FAST_ELEMENTS);
+  InternalArraySingleArgumentConstructorStub stub2(isolate, FAST_ELEMENTS);
   InstallDescriptor(isolate, &stub2);
-  InternalArrayNArgumentsConstructorStub stub3(FAST_ELEMENTS);
+  InternalArrayNArgumentsConstructorStub stub3(isolate, FAST_ELEMENTS);
   InstallDescriptor(isolate, &stub3);
 }
 
 InternalArrayConstructorStub::InternalArrayConstructorStub(
-    Isolate* isolate) {
+    Isolate* isolate) : PlatformCodeStub(isolate) {
   InternalArrayConstructorStubBase::GenerateStubsAheadOfTime(isolate);
 }
 

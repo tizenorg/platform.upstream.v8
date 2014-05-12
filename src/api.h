@@ -1,29 +1,6 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_API_H_
 #define V8_API_H_
@@ -31,7 +8,6 @@
 #include "v8.h"
 
 #include "../include/v8-testing.h"
-#include "apiutils.h"
 #include "contexts.h"
 #include "factory.h"
 #include "isolate.h"
@@ -56,7 +32,7 @@ class Consts {
 // env-independent JSObjects used by the api.
 class NeanderObject {
  public:
-  explicit NeanderObject(int size);
+  explicit NeanderObject(v8::internal::Isolate* isolate, int size);
   explicit inline NeanderObject(v8::internal::Handle<v8::internal::Object> obj);
   explicit inline NeanderObject(v8::internal::Object* obj);
   inline v8::internal::Object* get(int index);
@@ -72,7 +48,7 @@ class NeanderObject {
 // array abstraction built on neander-objects.
 class NeanderArray {
  public:
-  NeanderArray();
+  explicit NeanderArray(v8::internal::Isolate* isolate);
   explicit inline NeanderArray(v8::internal::Handle<v8::internal::Object> obj);
   inline v8::internal::Handle<v8::internal::JSObject> value() {
     return obj_.value();
@@ -125,8 +101,8 @@ template <typename T> inline T ToCData(v8::internal::Object* obj) {
 
 
 template <typename T>
-inline v8::internal::Handle<v8::internal::Object> FromCData(T obj) {
-  v8::internal::Isolate* isolate = v8::internal::Isolate::Current();
+inline v8::internal::Handle<v8::internal::Object> FromCData(
+    v8::internal::Isolate* isolate, T obj) {
   STATIC_ASSERT(sizeof(T) == sizeof(v8::internal::Address));
   return isolate->factory()->NewForeign(
       reinterpret_cast<v8::internal::Address>(reinterpret_cast<intptr_t>(obj)));
@@ -184,11 +160,12 @@ class RegisteredExtension {
   V(DataView, JSDataView)                      \
   V(String, String)                            \
   V(Symbol, Symbol)                            \
-  V(Script, Object)                            \
+  V(Script, JSFunction)                        \
+  V(UnboundScript, SharedFunctionInfo)         \
   V(Function, JSFunction)                      \
-  V(Message, JSObject)                         \
+  V(Message, JSMessageObject)                  \
   V(Context, Context)                          \
-  V(External, Foreign)                         \
+  V(External, Object)                          \
   V(StackTrace, JSArray)                       \
   V(StackFrame, JSObject)                      \
   V(DeclaredAccessorDescriptor, DeclaredAccessorDescriptor)
@@ -196,7 +173,12 @@ class RegisteredExtension {
 
 class Utils {
  public:
-  static bool ReportApiFailure(const char* location, const char* message);
+  static inline bool ApiCheck(bool condition,
+                              const char* location,
+                              const char* message) {
+    if (!condition) Utils::ReportApiFailure(location, message);
+    return condition;
+  }
 
   static Local<FunctionTemplate> ToFunctionTemplate(NeanderObject obj);
   static Local<ObjectTemplate> ToObjectTemplate(NeanderObject obj);
@@ -303,17 +285,20 @@ OPEN_HANDLE_LIST(DECLARE_OPEN_HANDLE)
   static inline v8::internal::Handle<To> OpenHandle(v8::Local<From> handle) {
     return OpenHandle(*handle);
   }
+
+ private:
+  static void ReportApiFailure(const char* location, const char* message);
 };
 
 
 template <class T>
 v8::internal::Handle<T> v8::internal::Handle<T>::EscapeFrom(
-    v8::HandleScope* scope) {
+    v8::EscapableHandleScope* scope) {
   v8::internal::Handle<T> handle;
   if (!is_null()) {
     handle = *this;
   }
-  return Utils::OpenHandle(*scope->Close(Utils::ToLocal(handle)), true);
+  return Utils::OpenHandle(*scope->Escape(Utils::ToLocal(handle)), true);
 }
 
 
@@ -337,11 +322,11 @@ inline v8::Local<T> ToApiHandle(
   }
 
 
-#define MAKE_TO_LOCAL_TYPED_ARRAY(TypedArray, typeConst)                    \
-  Local<v8::TypedArray> Utils::ToLocal##TypedArray(                         \
+#define MAKE_TO_LOCAL_TYPED_ARRAY(Type, typeName, TYPE, ctype, size)        \
+  Local<v8::Type##Array> Utils::ToLocal##Type##Array(                       \
       v8::internal::Handle<v8::internal::JSTypedArray> obj) {               \
-    ASSERT(obj->type() == typeConst);                                       \
-    return Convert<v8::internal::JSTypedArray, v8::TypedArray>(obj);        \
+    ASSERT(obj->type() == kExternal##Type##Array);                          \
+    return Convert<v8::internal::JSTypedArray, v8::Type##Array>(obj);       \
   }
 
 
@@ -358,15 +343,7 @@ MAKE_TO_LOCAL(ToLocal, JSArrayBufferView, ArrayBufferView)
 MAKE_TO_LOCAL(ToLocal, JSDataView, DataView)
 MAKE_TO_LOCAL(ToLocal, JSTypedArray, TypedArray)
 
-MAKE_TO_LOCAL_TYPED_ARRAY(Uint8Array, kExternalUnsignedByteArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Uint8ClampedArray, kExternalPixelArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Int8Array, kExternalByteArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Uint16Array, kExternalUnsignedShortArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Int16Array, kExternalShortArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Uint32Array, kExternalUnsignedIntArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Int32Array, kExternalIntArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Float32Array, kExternalFloatArray)
-MAKE_TO_LOCAL_TYPED_ARRAY(Float64Array, kExternalDoubleArray)
+TYPED_ARRAYS(MAKE_TO_LOCAL_TYPED_ARRAY)
 
 MAKE_TO_LOCAL(ToLocal, FunctionTemplateInfo, FunctionTemplate)
 MAKE_TO_LOCAL(ToLocal, ObjectTemplateInfo, ObjectTemplate)
@@ -393,8 +370,8 @@ MAKE_TO_LOCAL(ToLocal, DeclaredAccessorDescriptor, DeclaredAccessorDescriptor)
     const v8::From* that, bool allow_empty_handle) {                        \
     EXTRA_CHECK(allow_empty_handle || that != NULL);                        \
     EXTRA_CHECK(that == NULL ||                                             \
-        !(*reinterpret_cast<v8::internal::To**>(                            \
-            const_cast<v8::From*>(that)))->IsFailure());                    \
+        (*reinterpret_cast<v8::internal::Object**>(                         \
+            const_cast<v8::From*>(that)))->Is##To());                       \
     return v8::internal::Handle<v8::internal::To>(                          \
         reinterpret_cast<v8::internal::To**>(const_cast<v8::From*>(that))); \
   }
@@ -542,12 +519,13 @@ class HandleScopeImplementer {
   inline void DecrementCallDepth() {call_depth_--;}
   inline bool CallDepthIsZero() { return call_depth_ == 0; }
 
-  inline void EnterContext(Handle<Object> context);
-  inline bool LeaveLastContext();
+  inline void EnterContext(Handle<Context> context);
+  inline void LeaveContext();
+  inline bool LastEnteredContextWas(Handle<Context> context);
 
   // Returns the last entered context or an empty handle if no
   // contexts have been entered.
-  inline Handle<Object> LastEnteredContext();
+  inline Handle<Context> LastEnteredContext();
 
   inline void SaveContext(Context* context);
   inline Context* RestoreContext();
@@ -592,14 +570,14 @@ class HandleScopeImplementer {
   Isolate* isolate_;
   List<internal::Object**> blocks_;
   // Used as a stack to keep track of entered contexts.
-  List<Handle<Object> > entered_contexts_;
+  List<Context*> entered_contexts_;
   // Used as a stack to keep track of saved contexts.
   List<Context*> saved_contexts_;
   Object** spare_;
   int call_depth_;
   Object** last_handle_before_deferred_block_;
   // This is only used for threading support.
-  v8::ImplementationUtilities::HandleScopeData handle_scope_data_;
+  HandleScopeData handle_scope_data_;
 
   void IterateThis(ObjectVisitor* v);
   char* RestoreThreadHelper(char* from);
@@ -630,21 +608,24 @@ bool HandleScopeImplementer::HasSavedContexts() {
 }
 
 
-void HandleScopeImplementer::EnterContext(Handle<Object> context) {
-  entered_contexts_.Add(context);
+void HandleScopeImplementer::EnterContext(Handle<Context> context) {
+  entered_contexts_.Add(*context);
 }
 
 
-bool HandleScopeImplementer::LeaveLastContext() {
-  if (entered_contexts_.is_empty()) return false;
+void HandleScopeImplementer::LeaveContext() {
   entered_contexts_.RemoveLast();
-  return true;
 }
 
 
-Handle<Object> HandleScopeImplementer::LastEnteredContext() {
-  if (entered_contexts_.is_empty()) return Handle<Object>::null();
-  return entered_contexts_.last();
+bool HandleScopeImplementer::LastEnteredContextWas(Handle<Context> context) {
+  return !entered_contexts_.is_empty() && entered_contexts_.last() == *context;
+}
+
+
+Handle<Context> HandleScopeImplementer::LastEnteredContext() {
+  if (entered_contexts_.is_empty()) return Handle<Context>::null();
+  return Handle<Context>(entered_contexts_.last());
 }
 
 
@@ -665,7 +646,7 @@ void HandleScopeImplementer::DeleteExtensions(internal::Object** prev_limit) {
 #ifdef DEBUG
     // SealHandleScope may make the prev_limit to point inside the block.
     if (block_start <= prev_limit && prev_limit <= block_limit) {
-#ifdef ENABLE_EXTRA_CHECKS
+#ifdef ENABLE_HANDLE_ZAPPING
       internal::HandleScope::ZapRange(prev_limit, block_limit);
 #endif
       break;
@@ -675,7 +656,7 @@ void HandleScopeImplementer::DeleteExtensions(internal::Object** prev_limit) {
 #endif
 
     blocks_.RemoveLast();
-#ifdef ENABLE_EXTRA_CHECKS
+#ifdef ENABLE_HANDLE_ZAPPING
     internal::HandleScope::ZapRange(block_start, block_limit);
 #endif
     if (spare_ != NULL) {
@@ -690,19 +671,11 @@ void HandleScopeImplementer::DeleteExtensions(internal::Object** prev_limit) {
 
 // Interceptor functions called from generated inline caches to notify
 // CPU profiler that external callbacks are invoked.
-v8::Handle<v8::Value> InvokeAccessorGetter(
-    v8::Local<v8::String> property,
-    const v8::AccessorInfo& info,
-    v8::AccessorGetter getter);
-
-
 void InvokeAccessorGetterCallback(
     v8::Local<v8::String> property,
     const v8::PropertyCallbackInfo<v8::Value>& info,
     v8::AccessorGetterCallback getter);
 
-v8::Handle<v8::Value> InvokeInvocationCallback(const v8::Arguments& args,
-                                              v8::InvocationCallback callback);
 void InvokeFunctionCallback(const v8::FunctionCallbackInfo<v8::Value>& info,
                             v8::FunctionCallback callback);
 

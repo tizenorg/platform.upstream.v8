@@ -41,7 +41,6 @@
 #include "parser.h"
 #include "unicode-inl.h"
 
-using ::v8::AccessorInfo;
 using ::v8::Context;
 using ::v8::Extension;
 using ::v8::Function;
@@ -96,6 +95,7 @@ class KangarooThread : public v8::internal::Thread {
   Persistent<v8::Context> context_;
 };
 
+
 // Migrates an isolate from one thread to another
 TEST(KangarooIsolates) {
   v8::Isolate* isolate = v8::Isolate::New();
@@ -114,6 +114,7 @@ TEST(KangarooIsolates) {
   thread1->Join();
 }
 
+
 static void CalcFibAndCheck() {
   Local<Value> v = CompileRun("function fib(n) {"
                               "  if (n <= 2) return 1;"
@@ -128,20 +129,18 @@ class JoinableThread {
  public:
   explicit JoinableThread(const char* name)
     : name_(name),
-      semaphore_(i::OS::CreateSemaphore(0)),
+      semaphore_(0),
       thread_(this) {
   }
 
-  virtual ~JoinableThread() {
-    delete semaphore_;
-  }
+  virtual ~JoinableThread() {}
 
   void Start() {
     thread_.Start();
   }
 
   void Join() {
-    semaphore_->Wait();
+    semaphore_.Wait();
   }
 
   virtual void Run() = 0;
@@ -156,7 +155,7 @@ class JoinableThread {
 
     virtual void Run() {
       joinable_thread_->Run();
-      joinable_thread_->semaphore_->Signal();
+      joinable_thread_->semaphore_.Signal();
     }
 
    private:
@@ -164,7 +163,7 @@ class JoinableThread {
   };
 
   const char* name_;
-  i::Semaphore* semaphore_;
+  i::Semaphore semaphore_;
   ThreadWithSemaphore thread_;
 
   friend class ThreadWithSemaphore;
@@ -184,13 +183,14 @@ class IsolateLockingThreadWithLocalContext : public JoinableThread {
     v8::Locker locker(isolate_);
     v8::Isolate::Scope isolate_scope(isolate_);
     v8::HandleScope handle_scope(isolate_);
-    LocalContext local_context;
+    LocalContext local_context(isolate_);
     CHECK_EQ(isolate_, v8::internal::Isolate::Current());
     CalcFibAndCheck();
   }
  private:
   v8::Isolate* isolate_;
 };
+
 
 static void StartJoinAndDeleteThreads(const i::List<JoinableThread*>& threads) {
   for (int i = 0; i < threads.length(); i++) {
@@ -207,7 +207,7 @@ static void StartJoinAndDeleteThreads(const i::List<JoinableThread*>& threads) {
 
 // Run many threads all locking on the same isolate
 TEST(IsolateLockingStress) {
-#ifdef V8_TARGET_ARCH_MIPS
+#if V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -242,9 +242,10 @@ class IsolateNonlockingThread : public JoinableThread {
  private:
 };
 
+
 // Run many threads each accessing its own isolate without locking
 TEST(MultithreadedParallelIsolates) {
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 10;
 #else
   const int kNThreads = 50;
@@ -266,7 +267,7 @@ class IsolateNestedLockingThread : public JoinableThread {
     v8::Locker lock(isolate_);
     v8::Isolate::Scope isolate_scope(isolate_);
     v8::HandleScope handle_scope(isolate_);
-    LocalContext local_context;
+    LocalContext local_context(isolate_);
     {
       v8::Locker another_lock(isolate_);
       CalcFibAndCheck();
@@ -280,9 +281,10 @@ class IsolateNestedLockingThread : public JoinableThread {
   v8::Isolate* isolate_;
 };
 
+
 // Run  many threads with nested locks
 TEST(IsolateNestedLocking) {
-#ifdef V8_TARGET_ARCH_MIPS
+#if V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -309,7 +311,7 @@ class SeparateIsolatesLocksNonexclusiveThread : public JoinableThread {
     v8::Locker lock(isolate1_);
     v8::Isolate::Scope isolate_scope(isolate1_);
     v8::HandleScope handle_scope(isolate1_);
-    LocalContext local_context;
+    LocalContext local_context(isolate1_);
 
     IsolateLockingThreadWithLocalContext threadB(isolate2_);
     threadB.Start();
@@ -321,9 +323,10 @@ class SeparateIsolatesLocksNonexclusiveThread : public JoinableThread {
   v8::Isolate* isolate2_;
 };
 
+
 // Run parallel threads that lock and access different isolates in parallel
 TEST(SeparateIsolatesLocksNonexclusive) {
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -397,9 +400,10 @@ class LockerUnlockerThread : public JoinableThread {
   v8::Isolate* isolate_;
 };
 
+
 // Use unlocker inside of a Locker, multiple threads.
 TEST(LockerUnlocker) {
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -450,9 +454,10 @@ class LockTwiceAndUnlockThread : public JoinableThread {
   v8::Isolate* isolate_;
 };
 
+
 // Use Unlocker inside two Lockers.
 TEST(LockTwiceAndUnlock) {
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -517,6 +522,7 @@ class LockAndUnlockDifferentIsolatesThread : public JoinableThread {
   v8::Isolate* isolate2_;
 };
 
+
 // Lock two isolates and unlock one of them.
 TEST(LockAndUnlockDifferentIsolates) {
   v8::Isolate* isolate1 = v8::Isolate::New();
@@ -539,7 +545,7 @@ class LockUnlockLockThread : public JoinableThread {
   virtual void Run() {
     v8::Locker lock1(isolate_);
     CHECK(v8::Locker::IsLocked(isolate_));
-    CHECK(!v8::Locker::IsLocked(CcTest::default_isolate()));
+    CHECK(!v8::Locker::IsLocked(CcTest::isolate()));
     {
       v8::Isolate::Scope isolate_scope(isolate_);
       v8::HandleScope handle_scope(isolate_);
@@ -551,13 +557,13 @@ class LockUnlockLockThread : public JoinableThread {
     {
       v8::Unlocker unlock1(isolate_);
       CHECK(!v8::Locker::IsLocked(isolate_));
-      CHECK(!v8::Locker::IsLocked(CcTest::default_isolate()));
+      CHECK(!v8::Locker::IsLocked(CcTest::isolate()));
       {
         v8::Locker lock2(isolate_);
         v8::Isolate::Scope isolate_scope(isolate_);
         v8::HandleScope handle_scope(isolate_);
         CHECK(v8::Locker::IsLocked(isolate_));
-        CHECK(!v8::Locker::IsLocked(CcTest::default_isolate()));
+        CHECK(!v8::Locker::IsLocked(CcTest::isolate()));
         v8::Local<v8::Context> context =
             v8::Local<v8::Context>::New(isolate_, context_);
         v8::Context::Scope context_scope(context);
@@ -571,9 +577,10 @@ class LockUnlockLockThread : public JoinableThread {
   v8::Persistent<v8::Context> context_;
 };
 
+
 // Locker inside an Unlocker inside a Locker.
 TEST(LockUnlockLockMultithreaded) {
-#ifdef V8_TARGET_ARCH_MIPS
+#if V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -598,24 +605,26 @@ class LockUnlockLockDefaultIsolateThread : public JoinableThread {
  public:
   explicit LockUnlockLockDefaultIsolateThread(v8::Handle<v8::Context> context)
       : JoinableThread("LockUnlockLockDefaultIsolateThread"),
-        context_(CcTest::default_isolate(), context) {}
+        context_(CcTest::isolate(), context) {}
 
   virtual void Run() {
-    v8::Locker lock1(CcTest::default_isolate());
+    v8::Locker lock1(CcTest::isolate());
     {
-      v8::HandleScope handle_scope(CcTest::default_isolate());
+      v8::Isolate::Scope isolate_scope(CcTest::isolate());
+      v8::HandleScope handle_scope(CcTest::isolate());
       v8::Local<v8::Context> context =
-          v8::Local<v8::Context>::New(CcTest::default_isolate(), context_);
+          v8::Local<v8::Context>::New(CcTest::isolate(), context_);
       v8::Context::Scope context_scope(context);
       CalcFibAndCheck();
     }
     {
-      v8::Unlocker unlock1(CcTest::default_isolate());
+      v8::Unlocker unlock1(CcTest::isolate());
       {
-        v8::Locker lock2(CcTest::default_isolate());
-        v8::HandleScope handle_scope(CcTest::default_isolate());
+        v8::Locker lock2(CcTest::isolate());
+        v8::Isolate::Scope isolate_scope(CcTest::isolate());
+        v8::HandleScope handle_scope(CcTest::isolate());
         v8::Local<v8::Context> context =
-            v8::Local<v8::Context>::New(CcTest::default_isolate(), context_);
+            v8::Local<v8::Context>::New(CcTest::isolate(), context_);
         v8::Context::Scope context_scope(context);
         CalcFibAndCheck();
       }
@@ -626,9 +635,10 @@ class LockUnlockLockDefaultIsolateThread : public JoinableThread {
   v8::Persistent<v8::Context> context_;
 };
 
+
 // Locker inside an Unlocker inside a Locker for default isolate.
 TEST(LockUnlockLockDefaultIsolateMultithreaded) {
-#ifdef V8_TARGET_ARCH_MIPS
+#if V8_TARGET_ARCH_MIPS
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -636,9 +646,10 @@ TEST(LockUnlockLockDefaultIsolateMultithreaded) {
   Local<v8::Context> context;
   i::List<JoinableThread*> threads(kNThreads);
   {
-    v8::Locker locker_(CcTest::default_isolate());
-    v8::HandleScope handle_scope(CcTest::default_isolate());
-    context = v8::Context::New(CcTest::default_isolate());
+    v8::Locker locker_(CcTest::isolate());
+    v8::Isolate::Scope isolate_scope(CcTest::isolate());
+    v8::HandleScope handle_scope(CcTest::isolate());
+    context = v8::Context::New(CcTest::isolate());
     for (int i = 0; i < kNThreads; i++) {
       threads.Add(new LockUnlockLockDefaultIsolateThread(context));
     }
@@ -656,7 +667,7 @@ TEST(Regress1433) {
       v8::HandleScope handle_scope(isolate);
       v8::Handle<Context> context = v8::Context::New(isolate);
       v8::Context::Scope context_scope(context);
-      v8::Handle<String> source = v8::String::New("1+1");
+      v8::Handle<String> source = v8::String::NewFromUtf8(isolate, "1+1");
       v8::Handle<Script> script = v8::Script::Compile(source);
       v8::Handle<Value> result = script->Run();
       v8::String::Utf8Value utf8(result);
@@ -696,10 +707,11 @@ class IsolateGenesisThread : public JoinableThread {
   const char** extension_names_;
 };
 
+
 // Test installing extensions in separate isolates concurrently.
 // http://code.google.com/p/v8/issues/detail?id=1821
 TEST(ExtensionsRegistration) {
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_MIPS)
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
   const int kNThreads = 10;
 #else
   const int kNThreads = 40;

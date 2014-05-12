@@ -1,29 +1,6 @@
 // Copyright 2010 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifdef ENABLE_GDB_JIT_INTERFACE
 #include "v8.h"
@@ -217,7 +194,7 @@ class DebugSectionBase : public ZoneObject {
 struct MachOSectionHeader {
   char sectname[16];
   char segname[16];
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
   uint32_t addr;
   uint32_t size;
 #else
@@ -252,8 +229,8 @@ class MachOSection : public DebugSectionBase<MachOSectionHeader> {
       segment_(segment),
       align_(align),
       flags_(flags) {
-    ASSERT(IsPowerOf2(align));
     if (align_ != 0) {
+      ASSERT(IsPowerOf2(align));
       align_ = WhichPowerOf2(align_);
     }
   }
@@ -500,10 +477,10 @@ void ELFSection::PopulateHeader(Writer::Slot<ELFSection::Header> header,
 #if defined(__MACH_O)
 class MachO BASE_EMBEDDED {
  public:
-  MachO() : sections_(6) { }
+  explicit MachO(Zone* zone) : zone_(zone), sections_(6, zone) { }
 
   uint32_t AddSection(MachOSection* section) {
-    sections_.Add(section);
+    sections_.Add(section, zone_);
     return sections_.length() - 1;
   }
 
@@ -525,7 +502,7 @@ class MachO BASE_EMBEDDED {
     uint32_t ncmds;
     uint32_t sizeofcmds;
     uint32_t flags;
-#if defined(V8_TARGET_ARCH_X64)
+#if V8_TARGET_ARCH_X64
     uint32_t reserved;
 #endif
   };
@@ -534,7 +511,7 @@ class MachO BASE_EMBEDDED {
     uint32_t cmd;
     uint32_t cmdsize;
     char segname[16];
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
     uint32_t vmaddr;
     uint32_t vmsize;
     uint32_t fileoff;
@@ -560,11 +537,11 @@ class MachO BASE_EMBEDDED {
   Writer::Slot<MachOHeader> WriteHeader(Writer* w) {
     ASSERT(w->position() == 0);
     Writer::Slot<MachOHeader> header = w->CreateSlotHere<MachOHeader>();
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
     header->magic = 0xFEEDFACEu;
     header->cputype = 7;  // i386
     header->cpusubtype = 3;  // CPU_SUBTYPE_I386_ALL
-#elif defined(V8_TARGET_ARCH_X64)
+#elif V8_TARGET_ARCH_X64
     header->magic = 0xFEEDFACFu;
     header->cputype = 7 | 0x01000000;  // i386 | 64-bit ABI
     header->cpusubtype = 3;  // CPU_SUBTYPE_I386_ALL
@@ -585,7 +562,7 @@ class MachO BASE_EMBEDDED {
                                                         uintptr_t code_size) {
     Writer::Slot<MachOSegmentCommand> cmd =
         w->CreateSlotHere<MachOSegmentCommand>();
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
     cmd->cmd = LC_SEGMENT_32;
 #else
     cmd->cmd = LC_SEGMENT_64;
@@ -620,7 +597,7 @@ class MachO BASE_EMBEDDED {
     cmd->filesize = w->position() - (uintptr_t)cmd->fileoff;
   }
 
-
+  Zone* zone_;
   ZoneList<MachOSection*> sections_;
 };
 #endif  // defined(__MACH_O)
@@ -629,7 +606,7 @@ class MachO BASE_EMBEDDED {
 #if defined(__ELF)
 class ELF BASE_EMBEDDED {
  public:
-  explicit ELF(Zone* zone) : sections_(6, zone) {
+  explicit ELF(Zone* zone) : zone_(zone), sections_(6, zone) {
     sections_.Add(new(zone) ELFSection("", ELFSection::TYPE_NULL, 0), zone);
     sections_.Add(new(zone) ELFStringTable(".shstrtab"), zone);
   }
@@ -644,8 +621,8 @@ class ELF BASE_EMBEDDED {
     return sections_[index];
   }
 
-  uint32_t AddSection(ELFSection* section, Zone* zone) {
-    sections_.Add(section, zone);
+  uint32_t AddSection(ELFSection* section) {
+    sections_.Add(section, zone_);
     section->set_index(sections_.length() - 1);
     return sections_.length() - 1;
   }
@@ -672,10 +649,10 @@ class ELF BASE_EMBEDDED {
   void WriteHeader(Writer* w) {
     ASSERT(w->position() == 0);
     Writer::Slot<ELFHeader> header = w->CreateSlotHere<ELFHeader>();
-#if defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_ARM)
+#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM
     const uint8_t ident[16] =
         { 0x7f, 'E', 'L', 'F', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-#elif defined(V8_TARGET_ARCH_X64)
+#elif V8_TARGET_ARCH_X64
     const uint8_t ident[16] =
         { 0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 #else
@@ -683,14 +660,14 @@ class ELF BASE_EMBEDDED {
 #endif
     OS::MemCopy(header->ident, ident, 16);
     header->type = 1;
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
     header->machine = 3;
-#elif defined(V8_TARGET_ARCH_X64)
+#elif V8_TARGET_ARCH_X64
     // Processor identification value for x64 is 62 as defined in
     //    System V ABI, AMD64 Supplement
     //    http://www.x86-64.org/documentation/abi.pdf
     header->machine = 62;
-#elif defined(V8_TARGET_ARCH_ARM)
+#elif V8_TARGET_ARCH_ARM
     // Set to EM_ARM, defined as 40, in "ARM ELF File Format" at
     // infocenter.arm.com/help/topic/com.arm.doc.dui0101a/DUI0101A_Elf.pdf
     header->machine = 40;
@@ -743,6 +720,7 @@ class ELF BASE_EMBEDDED {
     }
   }
 
+  Zone* zone_;
   ZoneList<ELFSection*> sections_;
 };
 
@@ -784,7 +762,7 @@ class ELFSymbol BASE_EMBEDDED {
   Binding binding() const {
     return static_cast<Binding>(info >> 4);
   }
-#if defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_ARM)
+#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_ARM
   struct SerializedLayout {
     SerializedLayout(uint32_t name,
                      uintptr_t value,
@@ -807,7 +785,7 @@ class ELFSymbol BASE_EMBEDDED {
     uint8_t other;
     uint16_t section;
   };
-#elif defined(V8_TARGET_ARCH_X64)
+#elif V8_TARGET_ARCH_X64
   struct SerializedLayout {
     SerializedLayout(uint32_t name,
                      uintptr_t value,
@@ -921,7 +899,7 @@ class ELFSymbolTable : public ELFSection {
 
 class CodeDescription BASE_EMBEDDED {
  public:
-#ifdef V8_TARGET_ARCH_X64
+#if V8_TARGET_ARCH_X64
   enum StackState {
     POST_RBP_PUSH,
     POST_RBP_SET,
@@ -984,7 +962,7 @@ class CodeDescription BASE_EMBEDDED {
         lineinfo_ != NULL;
   }
 
-#ifdef V8_TARGET_ARCH_X64
+#if V8_TARGET_ARCH_X64
   uintptr_t GetStackStateStartAddress(StackState state) const {
     ASSERT(state < STACK_STATE_MAX);
     return stack_state_start_addresses_[state];
@@ -1001,7 +979,7 @@ class CodeDescription BASE_EMBEDDED {
   }
 
   int GetScriptLineNumber(int pos) {
-    return GetScriptLineNumberSafe(script_, pos) + 1;
+    return script_->GetLineNumber(pos) + 1;
   }
 
 
@@ -1012,7 +990,7 @@ class CodeDescription BASE_EMBEDDED {
   GDBJITLineInfo* lineinfo_;
   GDBJITInterface::CodeTag tag_;
   CompilationInfo* info_;
-#ifdef V8_TARGET_ARCH_X64
+#if V8_TARGET_ARCH_X64
   uintptr_t stack_state_start_addresses_[STACK_STATE_MAX];
 #endif
 };
@@ -1026,8 +1004,8 @@ static void CreateSymbolsTable(CodeDescription* desc,
   ELFStringTable* strtab = new(zone) ELFStringTable(".strtab");
 
   // Symbol table should be followed by the linked string table.
-  elf->AddSection(symtab, zone);
-  elf->AddSection(strtab, zone);
+  elf->AddSection(symtab);
+  elf->AddSection(strtab);
 
   symtab->Add(ELFSymbol("V8 Code",
                         0,
@@ -1088,7 +1066,7 @@ class DebugInfoSection : public DebugSection {
     w->Write<uint8_t>(sizeof(intptr_t));
 
     w->WriteULEB128(1);  // Abbreviation code.
-    w->WriteString(*desc_->GetFilename());
+    w->WriteString(desc_->GetFilename().get());
     w->Write<intptr_t>(desc_->CodeStart());
     w->Write<intptr_t>(desc_->CodeStart() + desc_->CodeSize());
     w->Write<uint32_t>(0);
@@ -1106,13 +1084,13 @@ class DebugInfoSection : public DebugSection {
       w->Write<intptr_t>(desc_->CodeStart() + desc_->CodeSize());
       Writer::Slot<uint32_t> fb_block_size = w->CreateSlotHere<uint32_t>();
       uintptr_t fb_block_start = w->position();
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
       w->Write<uint8_t>(DW_OP_reg5);  // The frame pointer's here on ia32
-#elif defined(V8_TARGET_ARCH_X64)
+#elif V8_TARGET_ARCH_X64
       w->Write<uint8_t>(DW_OP_reg6);  // and here on x64.
-#elif defined(V8_TARGET_ARCH_ARM)
+#elif V8_TARGET_ARCH_ARM
       UNIMPLEMENTED();
-#elif defined(V8_TARGET_ARCH_MIPS)
+#elif V8_TARGET_ARCH_MIPS
       UNIMPLEMENTED();
 #else
 #error Unsupported target architecture.
@@ -1130,7 +1108,7 @@ class DebugInfoSection : public DebugSection {
       for (int param = 0; param < params; ++param) {
         w->WriteULEB128(current_abbreviation++);
         w->WriteString(
-            *scope->parameter(param)->name()->ToCString(DISALLOW_NULLS));
+            scope->parameter(param)->name()->ToCString(DISALLOW_NULLS).get());
         w->Write<uint32_t>(ty_offset);
         Writer::Slot<uint32_t> block_size = w->CreateSlotHere<uint32_t>();
         uintptr_t block_start = w->position();
@@ -1181,7 +1159,7 @@ class DebugInfoSection : public DebugSection {
       for (int local = 0; local < locals; ++local) {
         w->WriteULEB128(current_abbreviation++);
         w->WriteString(
-            *stack_locals[local]->name()->ToCString(DISALLOW_NULLS));
+            stack_locals[local]->name()->ToCString(DISALLOW_NULLS).get());
         w->Write<uint32_t>(ty_offset);
         Writer::Slot<uint32_t> block_size = w->CreateSlotHere<uint32_t>();
         uintptr_t block_start = w->position();
@@ -1454,7 +1432,7 @@ class DebugLineSection : public DebugSection {
     w->Write<uint8_t>(1);  // DW_LNS_SET_COLUMN operands count.
     w->Write<uint8_t>(0);  // DW_LNS_NEGATE_STMT operands count.
     w->Write<uint8_t>(0);  // Empty include_directories sequence.
-    w->WriteString(*desc_->GetFilename());  // File name.
+    w->WriteString(desc_->GetFilename().get());  // File name.
     w->WriteULEB128(0);  // Current directory.
     w->WriteULEB128(0);  // Unknown modification time.
     w->WriteULEB128(0);  // Unknown file size.
@@ -1563,7 +1541,7 @@ class DebugLineSection : public DebugSection {
 };
 
 
-#ifdef V8_TARGET_ARCH_X64
+#if V8_TARGET_ARCH_X64
 
 class UnwindInfoSection : public DebugSection {
  public:
@@ -1793,12 +1771,12 @@ static void CreateDWARFSections(CodeDescription* desc,
                                 Zone* zone,
                                 DebugObject* obj) {
   if (desc->IsLineInfoAvailable()) {
-    obj->AddSection(new(zone) DebugInfoSection(desc), zone);
-    obj->AddSection(new(zone) DebugAbbrevSection(desc), zone);
-    obj->AddSection(new(zone) DebugLineSection(desc), zone);
+    obj->AddSection(new(zone) DebugInfoSection(desc));
+    obj->AddSection(new(zone) DebugAbbrevSection(desc));
+    obj->AddSection(new(zone) DebugLineSection(desc));
   }
-#ifdef V8_TARGET_ARCH_X64
-  obj->AddSection(new(zone) UnwindInfoSection(desc), zone);
+#if V8_TARGET_ARCH_X64
+  obj->AddSection(new(zone) UnwindInfoSection(desc));
 #endif
 }
 
@@ -1840,7 +1818,7 @@ extern "C" {
   JITDescriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
 
 #ifdef OBJECT_PRINT
-  void __gdb_print_v8_object(MaybeObject* object) {
+  void __gdb_print_v8_object(Object* object) {
     object->Print();
     PrintF(stdout, "\n");
   }
@@ -1871,7 +1849,7 @@ static void DestroyCodeEntry(JITCodeEntry* entry) {
 static void RegisterCodeEntry(JITCodeEntry* entry,
                               bool dump_if_enabled,
                               const char* name_hint) {
-#if defined(DEBUG) && !defined(WIN32)
+#if defined(DEBUG) && !V8_OS_WIN
   static int file_num = 0;
   if (FLAG_gdbjit_dump && dump_if_enabled) {
     static const int kMaxFileNameSize = 64;
@@ -1918,14 +1896,15 @@ static void UnregisterCodeEntry(JITCodeEntry* entry) {
 
 static JITCodeEntry* CreateELFObject(CodeDescription* desc, Isolate* isolate) {
 #ifdef __MACH_O
-  MachO mach_o;
+  Zone zone(isolate);
+  MachO mach_o(&zone);
   Writer w(&mach_o);
 
-  mach_o.AddSection(new MachOTextSection(kCodeAlignment,
-                                         desc->CodeStart(),
-                                         desc->CodeSize()));
+  mach_o.AddSection(new(&zone) MachOTextSection(kCodeAlignment,
+                                                desc->CodeStart(),
+                                                desc->CodeSize()));
 
-  CreateDWARFSections(desc, &mach_o);
+  CreateDWARFSections(desc, &zone, &mach_o);
 
   mach_o.Write(&w, desc->CodeStart(), desc->CodeSize());
 #else
@@ -1941,8 +1920,7 @@ static JITCodeEntry* CreateELFObject(CodeDescription* desc, Isolate* isolate) {
           desc->CodeStart(),
           0,
           desc->CodeSize(),
-          ELFSection::FLAG_ALLOC | ELFSection::FLAG_EXEC),
-      &zone);
+          ELFSection::FLAG_ALLOC | ELFSection::FLAG_EXEC));
 
   CreateSymbolsTable(desc, &zone, &elf, text_section_index);
 
@@ -2002,20 +1980,21 @@ void GDBJITInterface::AddCode(Handle<Name> name,
                               CompilationInfo* info) {
   if (!FLAG_gdbjit) return;
 
-  // Force initialization of line_ends array.
-  GetScriptLineNumber(script, 0);
+  Script::InitLineEnds(script);
 
   if (!name.is_null() && name->IsString()) {
     SmartArrayPointer<char> name_cstring =
         Handle<String>::cast(name)->ToCString(DISALLOW_NULLS);
-    AddCode(*name_cstring, *code, GDBJITInterface::FUNCTION, *script, info);
+    AddCode(name_cstring.get(), *code, GDBJITInterface::FUNCTION, *script,
+            info);
   } else {
     AddCode("", *code, GDBJITInterface::FUNCTION, *script, info);
   }
 }
 
+
 static void AddUnwindInfo(CodeDescription* desc) {
-#ifdef V8_TARGET_ARCH_X64
+#if V8_TARGET_ARCH_X64
   if (desc->tag() == GDBJITInterface::FUNCTION) {
     // To avoid propagating unwinding information through
     // compilation pipeline we use an approximation.
@@ -2061,7 +2040,7 @@ void GDBJITInterface::AddCode(const char* name,
                               CompilationInfo* info) {
   if (!FLAG_gdbjit) return;
 
-  ScopedLock lock(mutex.Pointer());
+  LockGuard<Mutex> lock_guard(mutex.Pointer());
   DisallowHeapAllocation no_gc;
 
   HashMap::Entry* e = GetEntries()->Lookup(code, HashForCodeObject(code), true);
@@ -2130,7 +2109,7 @@ void GDBJITInterface::AddCode(GDBJITInterface::CodeTag tag,
                               Code* code) {
   if (!FLAG_gdbjit) return;
   if (name != NULL && name->IsString()) {
-    AddCode(tag, *String::cast(name)->ToCString(DISALLOW_NULLS), code);
+    AddCode(tag, String::cast(name)->ToCString(DISALLOW_NULLS).get(), code);
   } else {
     AddCode(tag, "", code);
   }
@@ -2147,7 +2126,7 @@ void GDBJITInterface::AddCode(GDBJITInterface::CodeTag tag, Code* code) {
 void GDBJITInterface::RemoveCode(Code* code) {
   if (!FLAG_gdbjit) return;
 
-  ScopedLock lock(mutex.Pointer());
+  LockGuard<Mutex> lock_guard(mutex.Pointer());
   HashMap::Entry* e = GetEntries()->Lookup(code,
                                            HashForCodeObject(code),
                                            false);
@@ -2165,9 +2144,27 @@ void GDBJITInterface::RemoveCode(Code* code) {
 }
 
 
+void GDBJITInterface::RemoveCodeRange(Address start, Address end) {
+  HashMap* entries = GetEntries();
+  Zone zone(Isolate::Current());
+  ZoneList<Code*> dead_codes(1, &zone);
+
+  for (HashMap::Entry* e = entries->Start(); e != NULL; e = entries->Next(e)) {
+    Code* code = reinterpret_cast<Code*>(e->key);
+    if (code->address() >= start && code->address() < end) {
+      dead_codes.Add(code, &zone);
+    }
+  }
+
+  for (int i = 0; i < dead_codes.length(); i++) {
+    RemoveCode(dead_codes.at(i));
+  }
+}
+
+
 void GDBJITInterface::RegisterDetailedLineInfo(Code* code,
                                                GDBJITLineInfo* line_info) {
-  ScopedLock lock(mutex.Pointer());
+  LockGuard<Mutex> lock_guard(mutex.Pointer());
   ASSERT(!IsLineInfoTagged(line_info));
   HashMap::Entry* e = GetEntries()->Lookup(code, HashForCodeObject(code), true);
   ASSERT(e->value == NULL);

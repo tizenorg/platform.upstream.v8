@@ -1,31 +1,8 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
-// Platform specific code for Win32.
+// Platform-specific code for Win32.
 
 // Secure API functions are not available using MinGW with msvcrt.dll
 // on Windows XP. Make sure MINGW_HAS_SECURE_API is not defined to
@@ -38,15 +15,13 @@
 #endif  // MINGW_HAS_SECURE_API
 #endif  // __MINGW32__
 
-#define V8_WIN32_HEADERS_FULL
 #include "win32-headers.h"
 
 #include "v8.h"
 
 #include "codegen.h"
+#include "isolate-inl.h"
 #include "platform.h"
-#include "simulator.h"
-#include "vm-state-inl.h"
 
 #ifdef _MSC_VER
 
@@ -125,13 +100,6 @@ int strncpy_s(char* dest, size_t dest_size, const char* source, size_t count) {
 
 #endif  // __MINGW32__
 
-// Generate a pseudo-random number in the range 0-2^31-1. Usually
-// defined in stdlib.h. Missing in both Microsoft Visual Studio C++ and MinGW.
-int random() {
-  return rand();
-}
-
-
 namespace v8 {
 namespace internal {
 
@@ -140,17 +108,11 @@ intptr_t OS::MaxVirtualMemory() {
 }
 
 
-double ceiling(double x) {
-  return ceil(x);
-}
-
-
-static Mutex* limit_mutex = NULL;
-
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
 static void MemMoveWrapper(void* dest, const void* src, size_t size) {
   memmove(dest, src, size);
 }
+
 
 // Initialize to library version so we can call this at any time during startup.
 static OS::MemMoveFunction memmove_function = &MemMoveWrapper;
@@ -177,6 +139,7 @@ ModuloFunction CreateModuloFunction();
 void init_modulo_function() {
   modulo_function = CreateModuloFunction();
 }
+
 
 double modulo(double x, double y) {
   // Note: here we rely on dependent reads being ordered. This is true
@@ -208,10 +171,6 @@ double fast_##name(double x) {                           \
   return (*fast_##name##_function)(x);                   \
 }
 
-UNARY_MATH_FUNCTION(sin, CreateTranscendentalFunction(TranscendentalCache::SIN))
-UNARY_MATH_FUNCTION(cos, CreateTranscendentalFunction(TranscendentalCache::COS))
-UNARY_MATH_FUNCTION(tan, CreateTranscendentalFunction(TranscendentalCache::TAN))
-UNARY_MATH_FUNCTION(log, CreateTranscendentalFunction(TranscendentalCache::LOG))
 UNARY_MATH_FUNCTION(exp, CreateExpFunction())
 UNARY_MATH_FUNCTION(sqrt, CreateSqrtFunction())
 
@@ -229,13 +188,100 @@ void MathSetup() {
 #ifdef _WIN64
   init_modulo_function();
 #endif
-  init_fast_sin_function();
-  init_fast_cos_function();
-  init_fast_tan_function();
-  init_fast_log_function();
   // fast_exp is initialized lazily.
   init_fast_sqrt_function();
 }
+
+
+class TimezoneCache {
+ public:
+  TimezoneCache() : initialized_(false) { }
+
+  void Clear() {
+    initialized_ = false;
+  }
+
+  // Initialize timezone information. The timezone information is obtained from
+  // windows. If we cannot get the timezone information we fall back to CET.
+  void InitializeIfNeeded() {
+    // Just return if timezone information has already been initialized.
+    if (initialized_) return;
+
+    // Initialize POSIX time zone data.
+    _tzset();
+    // Obtain timezone information from operating system.
+    memset(&tzinfo_, 0, sizeof(tzinfo_));
+    if (GetTimeZoneInformation(&tzinfo_) == TIME_ZONE_ID_INVALID) {
+      // If we cannot get timezone information we fall back to CET.
+      tzinfo_.Bias = -60;
+      tzinfo_.StandardDate.wMonth = 10;
+      tzinfo_.StandardDate.wDay = 5;
+      tzinfo_.StandardDate.wHour = 3;
+      tzinfo_.StandardBias = 0;
+      tzinfo_.DaylightDate.wMonth = 3;
+      tzinfo_.DaylightDate.wDay = 5;
+      tzinfo_.DaylightDate.wHour = 2;
+      tzinfo_.DaylightBias = -60;
+    }
+
+    // Make standard and DST timezone names.
+    WideCharToMultiByte(CP_UTF8, 0, tzinfo_.StandardName, -1,
+                        std_tz_name_, kTzNameSize, NULL, NULL);
+    std_tz_name_[kTzNameSize - 1] = '\0';
+    WideCharToMultiByte(CP_UTF8, 0, tzinfo_.DaylightName, -1,
+                        dst_tz_name_, kTzNameSize, NULL, NULL);
+    dst_tz_name_[kTzNameSize - 1] = '\0';
+
+    // If OS returned empty string or resource id (like "@tzres.dll,-211")
+    // simply guess the name from the UTC bias of the timezone.
+    // To properly resolve the resource identifier requires a library load,
+    // which is not possible in a sandbox.
+    if (std_tz_name_[0] == '\0' || std_tz_name_[0] == '@') {
+      OS::SNPrintF(Vector<char>(std_tz_name_, kTzNameSize - 1),
+                   "%s Standard Time",
+                   GuessTimezoneNameFromBias(tzinfo_.Bias));
+    }
+    if (dst_tz_name_[0] == '\0' || dst_tz_name_[0] == '@') {
+      OS::SNPrintF(Vector<char>(dst_tz_name_, kTzNameSize - 1),
+                   "%s Daylight Time",
+                   GuessTimezoneNameFromBias(tzinfo_.Bias));
+    }
+    // Timezone information initialized.
+    initialized_ = true;
+  }
+
+  // Guess the name of the timezone from the bias.
+  // The guess is very biased towards the northern hemisphere.
+  const char* GuessTimezoneNameFromBias(int bias) {
+    static const int kHour = 60;
+    switch (-bias) {
+      case -9*kHour: return "Alaska";
+      case -8*kHour: return "Pacific";
+      case -7*kHour: return "Mountain";
+      case -6*kHour: return "Central";
+      case -5*kHour: return "Eastern";
+      case -4*kHour: return "Atlantic";
+      case  0*kHour: return "GMT";
+      case +1*kHour: return "Central Europe";
+      case +2*kHour: return "Eastern Europe";
+      case +3*kHour: return "Russia";
+      case +5*kHour + 30: return "India";
+      case +8*kHour: return "China";
+      case +9*kHour: return "Japan";
+      case +12*kHour: return "New Zealand";
+      default: return "Local";
+    }
+  }
+
+
+ private:
+  static const int kTzNameSize = 128;
+  bool initialized_;
+  char std_tz_name_[kTzNameSize];
+  char dst_tz_name_[kTzNameSize];
+  TIME_ZONE_INFORMATION tzinfo_;
+  friend class Win32Time;
+};
 
 
 // ----------------------------------------------------------------------------
@@ -244,12 +290,12 @@ void MathSetup() {
 // timestamps are represented as a doubles in milliseconds since 00:00:00 UTC,
 // January 1, 1970.
 
-class Time {
+class Win32Time {
  public:
   // Constructors.
-  Time();
-  explicit Time(double jstime);
-  Time(int year, int mon, int day, int hour, int min, int sec);
+  Win32Time();
+  explicit Win32Time(double jstime);
+  Win32Time(int year, int mon, int day, int hour, int min, int sec);
 
   // Convert timestamp to JavaScript representation.
   double ToJSTime();
@@ -262,14 +308,14 @@ class Time {
   // LocalOffset(CET) = 3600000 and LocalOffset(PST) = -28800000. This
   // routine also takes into account whether daylight saving is effect
   // at the time.
-  int64_t LocalOffset();
+  int64_t LocalOffset(TimezoneCache* cache);
 
   // Returns the daylight savings time offset for the time in milliseconds.
-  int64_t DaylightSavingsOffset();
+  int64_t DaylightSavingsOffset(TimezoneCache* cache);
 
   // Returns a string identifying the current timezone for the
   // timestamp taking into account daylight saving.
-  char* LocalTimezone();
+  char* LocalTimezone(TimezoneCache* cache);
 
  private:
   // Constants for time conversion.
@@ -278,29 +324,10 @@ class Time {
   static const int64_t kMsPerMinute = 60000;
 
   // Constants for timezone information.
-  static const int kTzNameSize = 128;
   static const bool kShortTzNames = false;
 
-  // Timezone information. We need to have static buffers for the
-  // timezone names because we return pointers to these in
-  // LocalTimezone().
-  static bool tz_initialized_;
-  static TIME_ZONE_INFORMATION tzinfo_;
-  static char std_tz_name_[kTzNameSize];
-  static char dst_tz_name_[kTzNameSize];
-
-  // Initialize the timezone information (if not already done).
-  static void TzSet();
-
-  // Guess the name of the timezone from the bias.
-  static const char* GuessTimezoneNameFromBias(int bias);
-
   // Return whether or not daylight savings time is in effect at this time.
-  bool InDST();
-
-  // Return the difference (in milliseconds) between this timestamp and
-  // another timestamp.
-  int64_t Diff(Time* other);
+  bool InDST(TimezoneCache* cache);
 
   // Accessor for FILETIME representation.
   FILETIME& ft() { return time_.ft_; }
@@ -321,27 +348,21 @@ class Time {
   TimeStamp time_;
 };
 
-// Static variables.
-bool Time::tz_initialized_ = false;
-TIME_ZONE_INFORMATION Time::tzinfo_;
-char Time::std_tz_name_[kTzNameSize];
-char Time::dst_tz_name_[kTzNameSize];
-
 
 // Initialize timestamp to start of epoc.
-Time::Time() {
+Win32Time::Win32Time() {
   t() = 0;
 }
 
 
 // Initialize timestamp from a JavaScript timestamp.
-Time::Time(double jstime) {
+Win32Time::Win32Time(double jstime) {
   t() = static_cast<int64_t>(jstime) * kTimeScaler + kTimeEpoc;
 }
 
 
 // Initialize timestamp from date/time components.
-Time::Time(int year, int mon, int day, int hour, int min, int sec) {
+Win32Time::Win32Time(int year, int mon, int day, int hour, int min, int sec) {
   SYSTEMTIME st;
   st.wYear = year;
   st.wMonth = mon;
@@ -355,95 +376,13 @@ Time::Time(int year, int mon, int day, int hour, int min, int sec) {
 
 
 // Convert timestamp to JavaScript timestamp.
-double Time::ToJSTime() {
+double Win32Time::ToJSTime() {
   return static_cast<double>((t() - kTimeEpoc) / kTimeScaler);
 }
 
 
-// Guess the name of the timezone from the bias.
-// The guess is very biased towards the northern hemisphere.
-const char* Time::GuessTimezoneNameFromBias(int bias) {
-  static const int kHour = 60;
-  switch (-bias) {
-    case -9*kHour: return "Alaska";
-    case -8*kHour: return "Pacific";
-    case -7*kHour: return "Mountain";
-    case -6*kHour: return "Central";
-    case -5*kHour: return "Eastern";
-    case -4*kHour: return "Atlantic";
-    case  0*kHour: return "GMT";
-    case +1*kHour: return "Central Europe";
-    case +2*kHour: return "Eastern Europe";
-    case +3*kHour: return "Russia";
-    case +5*kHour + 30: return "India";
-    case +8*kHour: return "China";
-    case +9*kHour: return "Japan";
-    case +12*kHour: return "New Zealand";
-    default: return "Local";
-  }
-}
-
-
-// Initialize timezone information. The timezone information is obtained from
-// windows. If we cannot get the timezone information we fall back to CET.
-// Please notice that this code is not thread-safe.
-void Time::TzSet() {
-  // Just return if timezone information has already been initialized.
-  if (tz_initialized_) return;
-
-  // Initialize POSIX time zone data.
-  _tzset();
-  // Obtain timezone information from operating system.
-  memset(&tzinfo_, 0, sizeof(tzinfo_));
-  if (GetTimeZoneInformation(&tzinfo_) == TIME_ZONE_ID_INVALID) {
-    // If we cannot get timezone information we fall back to CET.
-    tzinfo_.Bias = -60;
-    tzinfo_.StandardDate.wMonth = 10;
-    tzinfo_.StandardDate.wDay = 5;
-    tzinfo_.StandardDate.wHour = 3;
-    tzinfo_.StandardBias = 0;
-    tzinfo_.DaylightDate.wMonth = 3;
-    tzinfo_.DaylightDate.wDay = 5;
-    tzinfo_.DaylightDate.wHour = 2;
-    tzinfo_.DaylightBias = -60;
-  }
-
-  // Make standard and DST timezone names.
-  WideCharToMultiByte(CP_UTF8, 0, tzinfo_.StandardName, -1,
-                      std_tz_name_, kTzNameSize, NULL, NULL);
-  std_tz_name_[kTzNameSize - 1] = '\0';
-  WideCharToMultiByte(CP_UTF8, 0, tzinfo_.DaylightName, -1,
-                      dst_tz_name_, kTzNameSize, NULL, NULL);
-  dst_tz_name_[kTzNameSize - 1] = '\0';
-
-  // If OS returned empty string or resource id (like "@tzres.dll,-211")
-  // simply guess the name from the UTC bias of the timezone.
-  // To properly resolve the resource identifier requires a library load,
-  // which is not possible in a sandbox.
-  if (std_tz_name_[0] == '\0' || std_tz_name_[0] == '@') {
-    OS::SNPrintF(Vector<char>(std_tz_name_, kTzNameSize - 1),
-                 "%s Standard Time",
-                 GuessTimezoneNameFromBias(tzinfo_.Bias));
-  }
-  if (dst_tz_name_[0] == '\0' || dst_tz_name_[0] == '@') {
-    OS::SNPrintF(Vector<char>(dst_tz_name_, kTzNameSize - 1),
-                 "%s Daylight Time",
-                 GuessTimezoneNameFromBias(tzinfo_.Bias));
-  }
-
-  // Timezone information initialized.
-  tz_initialized_ = true;
-}
-
-
-// Return the difference in milliseconds between this and another timestamp.
-int64_t Time::Diff(Time* other) {
-  return (t() - other->t()) / kTimeScaler;
-}
-
-
 // Set timestamp to current time.
-void Time::SetToCurrentTime() {
+void Win32Time::SetToCurrentTime() {
   // The default GetSystemTimeAsFileTime has a ~15.5ms resolution.
   // Because we're fast, we like fast timers which have at least a
   // 1ms resolution.
@@ -503,11 +442,10 @@ void Time::SetToCurrentTime() {
 // Only times in the 32-bit Unix range may be passed to this function.
 // Also, adding the time-zone offset to the input must not overflow.
 // The function EquivalentTime() in date.js guarantees this.
-int64_t Time::LocalOffset() {
-  // Initialize timezone information, if needed.
-  TzSet();
+int64_t Win32Time::LocalOffset(TimezoneCache* cache) {
+  cache->InitializeIfNeeded();
 
-  Time rounded_to_second(*this);
+  Win32Time rounded_to_second(*this);
   rounded_to_second.t() = rounded_to_second.t() / 1000 / kTimeScaler *
       1000 * kTimeScaler;
   // Convert to local time using POSIX localtime function.
@@ -528,29 +466,30 @@ int64_t Time::LocalOffset() {
   if (localtime_s(&posix_local_time_struct, &posix_time)) return 0;
 
   if (posix_local_time_struct.tm_isdst > 0) {
-    return (tzinfo_.Bias + tzinfo_.DaylightBias) * -kMsPerMinute;
+    return (cache->tzinfo_.Bias + cache->tzinfo_.DaylightBias) * -kMsPerMinute;
   } else if (posix_local_time_struct.tm_isdst == 0) {
-    return (tzinfo_.Bias + tzinfo_.StandardBias) * -kMsPerMinute;
+    return (cache->tzinfo_.Bias + cache->tzinfo_.StandardBias) * -kMsPerMinute;
   } else {
-    return tzinfo_.Bias * -kMsPerMinute;
+    return cache->tzinfo_.Bias * -kMsPerMinute;
   }
 }
 
 
 // Return whether or not daylight savings time is in effect at this time.
-bool Time::InDST() {
-  // Initialize timezone information, if needed.
-  TzSet();
+bool Win32Time::InDST(TimezoneCache* cache) {
+  cache->InitializeIfNeeded();
 
   // Determine if DST is in effect at the specified time.
   bool in_dst = false;
-  if (tzinfo_.StandardDate.wMonth != 0 || tzinfo_.DaylightDate.wMonth != 0) {
+  if (cache->tzinfo_.StandardDate.wMonth != 0 ||
+      cache->tzinfo_.DaylightDate.wMonth != 0) {
     // Get the local timezone offset for the timestamp in milliseconds.
-    int64_t offset = LocalOffset();
+    int64_t offset = LocalOffset(cache);
 
     // Compute the offset for DST. The bias parameters in the timezone info
     // are specified in minutes. These must be converted to milliseconds.
-    int64_t dstofs = -(tzinfo_.Bias + tzinfo_.DaylightBias) * kMsPerMinute;
+    int64_t dstofs =
+        -(cache->tzinfo_.Bias + cache->tzinfo_.DaylightBias) * kMsPerMinute;
 
     // If the local time offset equals the timezone bias plus the daylight
     // bias then DST is in effect.
@@ -562,17 +501,17 @@ bool Time::InDST() {
 
 
 // Return the daylight savings time offset for this time.
-int64_t Time::DaylightSavingsOffset() {
-  return InDST() ? 60 * kMsPerMinute : 0;
+int64_t Win32Time::DaylightSavingsOffset(TimezoneCache* cache) {
+  return InDST(cache) ? 60 * kMsPerMinute : 0;
 }
 
 
 // Returns a string identifying the current timezone for the
 // timestamp taking into account daylight saving.
-char* Time::LocalTimezone() {
+char* Win32Time::LocalTimezone(TimezoneCache* cache) {
   // Return the standard or DST time zone name based on whether daylight
   // saving is in effect at the given time.
-  return InDST() ? dst_tz_name_ : std_tz_name_;
+  return InDST(cache) ? cache->dst_tz_name_ : cache->std_tz_name_;
 }
 
 
@@ -580,7 +519,7 @@ void OS::PostSetUp() {
   // Math functions depend on CPU features therefore they are initialized after
   // CPU.
   MathSetup();
-#if defined(V8_TARGET_ARCH_IA32)
+#if V8_TARGET_ARCH_IA32
   OS::MemMoveFunction generated_memmove = CreateMemMoveFunction();
   if (generated_memmove != NULL) {
     memmove_function = generated_memmove;
@@ -611,38 +550,47 @@ int OS::GetUserTime(uint32_t* secs,  uint32_t* usecs) {
 // Returns current time as the number of milliseconds since
 // 00:00:00 UTC, January 1, 1970.
 double OS::TimeCurrentMillis() {
-  Time t;
-  t.SetToCurrentTime();
-  return t.ToJSTime();
+  return Time::Now().ToJsTime();
 }
 
-// Returns the tickcounter based on timeGetTime.
-int64_t OS::Ticks() {
-  return timeGetTime() * 1000;  // Convert to microseconds.
+
+TimezoneCache* OS::CreateTimezoneCache() {
+  return new TimezoneCache();
+}
+
+
+void OS::DisposeTimezoneCache(TimezoneCache* cache) {
+  delete cache;
+}
+
+
+void OS::ClearTimezoneCache(TimezoneCache* cache) {
+  cache->Clear();
 }
 
 
 // Returns a string identifying the current timezone taking into
 // account daylight saving.
-const char* OS::LocalTimezone(double time) {
-  return Time(time).LocalTimezone();
+const char* OS::LocalTimezone(double time, TimezoneCache* cache) {
+  return Win32Time(time).LocalTimezone(cache);
 }
 
 
 // Returns the local time offset in milliseconds east of UTC without
 // taking daylight savings time into account.
-double OS::LocalTimeOffset() {
+double OS::LocalTimeOffset(TimezoneCache* cache) {
   // Use current time, rounded to the millisecond.
-  Time t(TimeCurrentMillis());
+  Win32Time t(TimeCurrentMillis());
   // Time::LocalOffset inlcudes any daylight savings offset, so subtract it.
-  return static_cast<double>(t.LocalOffset() - t.DaylightSavingsOffset());
+  return static_cast<double>(t.LocalOffset(cache) -
+                             t.DaylightSavingsOffset(cache));
 }
 
 
 // Returns the daylight savings offset in milliseconds for the given
 // time.
-double OS::DaylightSavingsOffset(double time) {
-  int64_t offset = Time(time).DaylightSavingsOffset();
+double OS::DaylightSavingsOffset(double time, TimezoneCache* cache) {
+  int64_t offset = Win32Time(time).DaylightSavingsOffset(cache);
   return static_cast<double>(offset);
 }
 
@@ -698,15 +646,15 @@ static bool HasConsole() {
 
 
 static void VPrintHelper(FILE* stream, const char* format, va_list args) {
-  if (HasConsole()) {
-    vfprintf(stream, format, args);
-  } else {
+  if ((stream == stdout || stream == stderr) && !HasConsole()) {
     // It is important to use safe print here in order to avoid
     // overflowing the buffer. We might truncate the output, but this
     // does not crash.
     EmbeddedVector<char, 4096> buffer;
     OS::VSNPrintF(buffer, format, args);
     OutputDebugStringA(buffer.start());
+  } else {
+    vfprintf(stream, format, args);
   }
 }
 
@@ -831,35 +779,6 @@ void OS::StrNCpy(Vector<char> dest, const char* src, size_t n) {
 #undef _TRUNCATE
 #undef STRUNCATE
 
-// We keep the lowest and highest addresses mapped as a quick way of
-// determining that pointers are outside the heap (used mostly in assertions
-// and verification).  The estimate is conservative, i.e., not all addresses in
-// 'allocated' space are actually allocated to our heap.  The range is
-// [lowest, highest), inclusive on the low and and exclusive on the high end.
-static void* lowest_ever_allocated = reinterpret_cast<void*>(-1);
-static void* highest_ever_allocated = reinterpret_cast<void*>(0);
-
-
-static void UpdateAllocatedSpaceLimits(void* address, int size) {
-  ASSERT(limit_mutex != NULL);
-  ScopedLock lock(limit_mutex);
-
-  lowest_ever_allocated = Min(lowest_ever_allocated, address);
-  highest_ever_allocated =
-      Max(highest_ever_allocated,
-          reinterpret_cast<void*>(reinterpret_cast<char*>(address) + size));
-}
-
-
-bool OS::IsOutsideAllocatedSpace(void* pointer) {
-  if (pointer < lowest_ever_allocated || pointer >= highest_ever_allocated)
-    return true;
-  // Ask the Windows API
-  if (IsBadWritePtr(pointer, 1))
-    return true;
-  return false;
-}
-
 
 // Get the system's page size used by VirtualAlloc() or the next power
 // of two. The reason for always returning a power of two is that the
@@ -888,7 +807,7 @@ size_t OS::AllocateAlignment() {
 }
 
 
-static void* GetRandomAddr() {
+void* OS::GetRandomMmapAddr() {
   Isolate* isolate = Isolate::UncheckedCurrent();
   // Note that the current isolate isn't set up in a call path via
   // CpuFeatures::Probe. We don't care about randomization in this case because
@@ -906,8 +825,9 @@ static void* GetRandomAddr() {
     static const intptr_t kAllocationRandomAddressMin = 0x04000000;
     static const intptr_t kAllocationRandomAddressMax = 0x3FFF0000;
 #endif
-    uintptr_t address = (V8::RandomPrivate(isolate) << kPageSizeBits)
-        | kAllocationRandomAddressMin;
+    uintptr_t address =
+        (isolate->random_number_generator()->NextInt() << kPageSizeBits) |
+        kAllocationRandomAddressMin;
     address &= kAllocationRandomAddressMax;
     return reinterpret_cast<void *>(address);
   }
@@ -921,7 +841,7 @@ static void* RandomizedVirtualAlloc(size_t size, int action, int protection) {
   if (protection == PAGE_EXECUTE_READWRITE || protection == PAGE_NOACCESS) {
     // For exectutable pages try and randomize the allocation address
     for (size_t attempts = 0; base == NULL && attempts < 3; ++attempts) {
-      base = VirtualAlloc(GetRandomAddr(), size, action, protection);
+      base = VirtualAlloc(OS::GetRandomMmapAddr(), size, action, protection);
     }
   }
 
@@ -946,14 +866,13 @@ void* OS::Allocate(const size_t requested,
                                         prot);
 
   if (mbase == NULL) {
-    LOG(ISOLATE, StringEvent("OS::Allocate", "VirtualAlloc failed"));
+    LOG(Isolate::Current(), StringEvent("OS::Allocate", "VirtualAlloc failed"));
     return NULL;
   }
 
   ASSERT(IsAligned(reinterpret_cast<size_t>(mbase), OS::AllocateAlignment()));
 
   *allocated = msize;
-  UpdateAllocatedSpaceLimits(mbase, static_cast<int>(msize));
   return mbase;
 }
 
@@ -978,7 +897,7 @@ void OS::ProtectCode(void* address, const size_t size) {
 
 void OS::Guard(void* address, const size_t size) {
   DWORD oldprotect;
-  VirtualProtect(address, size, PAGE_READONLY | PAGE_GUARD, &oldprotect);
+  VirtualProtect(address, size, PAGE_NOACCESS, &oldprotect);
 }
 
 
@@ -987,34 +906,24 @@ void OS::Sleep(int milliseconds) {
 }
 
 
-int OS::NumberOfCores() {
-  SYSTEM_INFO info;
-  GetSystemInfo(&info);
-  return info.dwNumberOfProcessors;
-}
-
-
 void OS::Abort() {
-  if (IsDebuggerPresent() || FLAG_break_on_abort) {
-    DebugBreak();
-  } else {
-    // Make the MSVCRT do a silent abort.
-    raise(SIGABRT);
+  if (FLAG_hard_abort) {
+    V8_IMMEDIATE_CRASH();
   }
+  // Make the MSVCRT do a silent abort.
+  raise(SIGABRT);
 }
 
 
 void OS::DebugBreak() {
 #ifdef _MSC_VER
+  // To avoid Visual Studio runtime support the following code can be used
+  // instead
+  // __asm { int 3 }
   __debugbreak();
 #else
   ::DebugBreak();
 #endif
-}
-
-
-void OS::DumpBacktrace() {
-  // Currently unsupported.
 }
 
 
@@ -1251,7 +1160,7 @@ TLHELP32_FUNCTION_LIST(DLL_FUNC_LOADED)
 
 
 // Load the symbols for generating stack traces.
-static bool LoadSymbols(HANDLE process_handle) {
+static bool LoadSymbols(Isolate* isolate, HANDLE process_handle) {
   static bool symbols_loaded = false;
 
   if (symbols_loaded) return true;
@@ -1300,7 +1209,7 @@ static bool LoadSymbols(HANDLE process_handle) {
       if (err != ERROR_MOD_NOT_FOUND &&
           err != ERROR_INVALID_HANDLE) return false;
     }
-    LOG(i::Isolate::Current(),
+    LOG(isolate,
         SharedLibraryEvent(
             module_entry.szExePath,
             reinterpret_cast<unsigned int>(module_entry.modBaseAddr),
@@ -1315,14 +1224,14 @@ static bool LoadSymbols(HANDLE process_handle) {
 }
 
 
-void OS::LogSharedLibraryAddresses() {
+void OS::LogSharedLibraryAddresses(Isolate* isolate) {
   // SharedLibraryEvents are logged when loading symbol information.
   // Only the shared libraries loaded at the time of the call to
   // LogSharedLibraryAddresses are logged.  DLLs loaded after
   // initialization are not accounted for.
   if (!LoadDbgHelpAndTlHelp32()) return;
   HANDLE process_handle = GetCurrentProcess();
-  LoadSymbols(process_handle);
+  LoadSymbols(isolate, process_handle);
 }
 
 
@@ -1330,132 +1239,21 @@ void OS::SignalCodeMovingGC() {
 }
 
 
-// Walk the stack using the facilities in dbghelp.dll and tlhelp32.dll
-
-// Switch off warning 4748 (/GS can not protect parameters and local variables
-// from local buffer overrun because optimizations are disabled in function) as
-// it is triggered by the use of inline assembler.
-#pragma warning(push)
-#pragma warning(disable : 4748)
-int OS::StackWalk(Vector<OS::StackFrame> frames) {
-  BOOL ok;
-
-  // Load the required functions from DLL's.
-  if (!LoadDbgHelpAndTlHelp32()) return kStackWalkError;
-
-  // Get the process and thread handles.
-  HANDLE process_handle = GetCurrentProcess();
-  HANDLE thread_handle = GetCurrentThread();
-
-  // Read the symbols.
-  if (!LoadSymbols(process_handle)) return kStackWalkError;
-
-  // Capture current context.
-  CONTEXT context;
-  RtlCaptureContext(&context);
-
-  // Initialize the stack walking
-  STACKFRAME64 stack_frame;
-  memset(&stack_frame, 0, sizeof(stack_frame));
-#ifdef  _WIN64
-  stack_frame.AddrPC.Offset = context.Rip;
-  stack_frame.AddrFrame.Offset = context.Rbp;
-  stack_frame.AddrStack.Offset = context.Rsp;
-#else
-  stack_frame.AddrPC.Offset = context.Eip;
-  stack_frame.AddrFrame.Offset = context.Ebp;
-  stack_frame.AddrStack.Offset = context.Esp;
-#endif
-  stack_frame.AddrPC.Mode = AddrModeFlat;
-  stack_frame.AddrFrame.Mode = AddrModeFlat;
-  stack_frame.AddrStack.Mode = AddrModeFlat;
-  int frames_count = 0;
-
-  // Collect stack frames.
-  int frames_size = frames.length();
-  while (frames_count < frames_size) {
-    ok = _StackWalk64(
-        IMAGE_FILE_MACHINE_I386,    // MachineType
-        process_handle,             // hProcess
-        thread_handle,              // hThread
-        &stack_frame,               // StackFrame
-        &context,                   // ContextRecord
-        NULL,                       // ReadMemoryRoutine
-        _SymFunctionTableAccess64,  // FunctionTableAccessRoutine
-        _SymGetModuleBase64,        // GetModuleBaseRoutine
-        NULL);                      // TranslateAddress
-    if (!ok) break;
-
-    // Store the address.
-    ASSERT((stack_frame.AddrPC.Offset >> 32) == 0);  // 32-bit address.
-    frames[frames_count].address =
-        reinterpret_cast<void*>(stack_frame.AddrPC.Offset);
-
-    // Try to locate a symbol for this frame.
-    DWORD64 symbol_displacement;
-    SmartArrayPointer<IMAGEHLP_SYMBOL64> symbol(
-        NewArray<IMAGEHLP_SYMBOL64>(kStackWalkMaxNameLen));
-    if (symbol.is_empty()) return kStackWalkError;  // Out of memory.
-    memset(*symbol, 0, sizeof(IMAGEHLP_SYMBOL64) + kStackWalkMaxNameLen);
-    (*symbol)->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
-    (*symbol)->MaxNameLength = kStackWalkMaxNameLen;
-    ok = _SymGetSymFromAddr64(process_handle,             // hProcess
-                              stack_frame.AddrPC.Offset,  // Address
-                              &symbol_displacement,       // Displacement
-                              *symbol);                   // Symbol
-    if (ok) {
-      // Try to locate more source information for the symbol.
-      IMAGEHLP_LINE64 Line;
-      memset(&Line, 0, sizeof(Line));
-      Line.SizeOfStruct = sizeof(Line);
-      DWORD line_displacement;
-      ok = _SymGetLineFromAddr64(
-          process_handle,             // hProcess
-          stack_frame.AddrPC.Offset,  // dwAddr
-          &line_displacement,         // pdwDisplacement
-          &Line);                     // Line
-      // Format a text representation of the frame based on the information
-      // available.
-      if (ok) {
-        SNPrintF(MutableCStrVector(frames[frames_count].text,
-                                   kStackWalkMaxTextLen),
-                 "%s %s:%d:%d",
-                 (*symbol)->Name, Line.FileName, Line.LineNumber,
-                 line_displacement);
-      } else {
-        SNPrintF(MutableCStrVector(frames[frames_count].text,
-                                   kStackWalkMaxTextLen),
-                 "%s",
-                 (*symbol)->Name);
-      }
-      // Make sure line termination is in place.
-      frames[frames_count].text[kStackWalkMaxTextLen - 1] = '\0';
-    } else {
-      // No text representation of this frame
-      frames[frames_count].text[0] = '\0';
-
-      // Continue if we are just missing a module (for non C/C++ frames a
-      // module will never be found).
-      int err = GetLastError();
-      if (err != ERROR_MOD_NOT_FOUND) {
-        break;
-      }
-    }
-
-    frames_count++;
+uint64_t OS::TotalPhysicalMemory() {
+  MEMORYSTATUSEX memory_info;
+  memory_info.dwLength = sizeof(memory_info);
+  if (!GlobalMemoryStatusEx(&memory_info)) {
+    UNREACHABLE();
+    return 0;
   }
 
-  // Return the number of frames filled in.
-  return frames_count;
+  return static_cast<uint64_t>(memory_info.ullTotalPhys);
 }
 
-// Restore warnings to previous settings.
-#pragma warning(pop)
 
 #else  // __MINGW32__
-void OS::LogSharedLibraryAddresses() { }
+void OS::LogSharedLibraryAddresses(Isolate* isolate) { }
 void OS::SignalCodeMovingGC() { }
-int OS::StackWalk(Vector<OS::StackFrame> frames) { return 0; }
 #endif  // __MINGW32__
 
 
@@ -1479,6 +1277,10 @@ double OS::nan_value() {
 int OS::ActivationFrameAlignment() {
 #ifdef _WIN64
   return 16;  // Windows 64-bit ABI requires the stack to be 16-byte aligned.
+#elif defined(__MINGW32__)
+  // With gcc 4.4 the tree vectorization optimizer can generate code
+  // that requires 16 byte alignment such as movdqa on x86.
+  return 16;
 #else
   return 8;  // Floating-point math runs faster with 8-byte alignment.
 #endif
@@ -1553,7 +1355,7 @@ bool VirtualMemory::Guard(void* address) {
   if (NULL == VirtualAlloc(address,
                            OS::CommitPageSize(),
                            MEM_COMMIT,
-                           PAGE_READONLY | PAGE_GUARD)) {
+                           PAGE_NOACCESS)) {
     return false;
   }
   return true;
@@ -1570,8 +1372,6 @@ bool VirtualMemory::CommitRegion(void* base, size_t size, bool is_executable) {
   if (NULL == VirtualAlloc(base, size, MEM_COMMIT, prot)) {
     return false;
   }
-
-  UpdateAllocatedSpaceLimits(base, static_cast<int>(size));
   return true;
 }
 
@@ -1693,298 +1493,5 @@ void Thread::SetThreadLocal(LocalStorageKey key, void* value) {
 void Thread::YieldCPU() {
   Sleep(0);
 }
-
-
-// ----------------------------------------------------------------------------
-// Win32 mutex support.
-//
-// On Win32 mutexes are implemented using CRITICAL_SECTION objects. These are
-// faster than Win32 Mutex objects because they are implemented using user mode
-// atomic instructions. Therefore we only do ring transitions if there is lock
-// contention.
-
-class Win32Mutex : public Mutex {
- public:
-  Win32Mutex() { InitializeCriticalSection(&cs_); }
-
-  virtual ~Win32Mutex() { DeleteCriticalSection(&cs_); }
-
-  virtual int Lock() {
-    EnterCriticalSection(&cs_);
-    return 0;
-  }
-
-  virtual int Unlock() {
-    LeaveCriticalSection(&cs_);
-    return 0;
-  }
-
-
-  virtual bool TryLock() {
-    // Returns non-zero if critical section is entered successfully entered.
-    return TryEnterCriticalSection(&cs_);
-  }
-
- private:
-  CRITICAL_SECTION cs_;  // Critical section used for mutex
-};
-
-
-Mutex* OS::CreateMutex() {
-  return new Win32Mutex();
-}
-
-
-// ----------------------------------------------------------------------------
-// Win32 semaphore support.
-//
-// On Win32 semaphores are implemented using Win32 Semaphore objects. The
-// semaphores are anonymous. Also, the semaphores are initialized to have
-// no upper limit on count.
-
-
-class Win32Semaphore : public Semaphore {
- public:
-  explicit Win32Semaphore(int count) {
-    sem = ::CreateSemaphoreA(NULL, count, 0x7fffffff, NULL);
-  }
-
-  ~Win32Semaphore() {
-    CloseHandle(sem);
-  }
-
-  void Wait() {
-    WaitForSingleObject(sem, INFINITE);
-  }
-
-  bool Wait(int timeout) {
-    // Timeout in Windows API is in milliseconds.
-    DWORD millis_timeout = timeout / 1000;
-    return WaitForSingleObject(sem, millis_timeout) != WAIT_TIMEOUT;
-  }
-
-  void Signal() {
-    LONG dummy;
-    ReleaseSemaphore(sem, 1, &dummy);
-  }
-
- private:
-  HANDLE sem;
-};
-
-
-Semaphore* OS::CreateSemaphore(int count) {
-  return new Win32Semaphore(count);
-}
-
-
-// ----------------------------------------------------------------------------
-// Win32 socket support.
-//
-
-class Win32Socket : public Socket {
- public:
-  explicit Win32Socket() {
-    // Create the socket.
-    socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  }
-  explicit Win32Socket(SOCKET socket): socket_(socket) { }
-  virtual ~Win32Socket() { Shutdown(); }
-
-  // Server initialization.
-  bool Bind(const int port);
-  bool Listen(int backlog) const;
-  Socket* Accept() const;
-
-  // Client initialization.
-  bool Connect(const char* host, const char* port);
-
-  // Shutdown socket for both read and write.
-  bool Shutdown();
-
-  // Data Transimission
-  int Send(const char* data, int len) const;
-  int Receive(char* data, int len) const;
-
-  bool SetReuseAddress(bool reuse_address);
-
-  bool IsValid() const { return socket_ != INVALID_SOCKET; }
-
- private:
-  SOCKET socket_;
-};
-
-
-bool Win32Socket::Bind(const int port) {
-  if (!IsValid())  {
-    return false;
-  }
-
-  sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = htons(port);
-  int status = bind(socket_,
-                    reinterpret_cast<struct sockaddr *>(&addr),
-                    sizeof(addr));
-  return status == 0;
-}
-
-
-bool Win32Socket::Listen(int backlog) const {
-  if (!IsValid()) {
-    return false;
-  }
-
-  int status = listen(socket_, backlog);
-  return status == 0;
-}
-
-
-Socket* Win32Socket::Accept() const {
-  if (!IsValid()) {
-    return NULL;
-  }
-
-  SOCKET socket = accept(socket_, NULL, NULL);
-  if (socket == INVALID_SOCKET) {
-    return NULL;
-  } else {
-    return new Win32Socket(socket);
-  }
-}
-
-
-bool Win32Socket::Connect(const char* host, const char* port) {
-  if (!IsValid()) {
-    return false;
-  }
-
-  // Lookup host and port.
-  struct addrinfo *result = NULL;
-  struct addrinfo hints;
-  memset(&hints, 0, sizeof(addrinfo));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_protocol = IPPROTO_TCP;
-  int status = getaddrinfo(host, port, &hints, &result);
-  if (status != 0) {
-    return false;
-  }
-
-  // Connect.
-  status = connect(socket_,
-                   result->ai_addr,
-                   static_cast<int>(result->ai_addrlen));
-  freeaddrinfo(result);
-  return status == 0;
-}
-
-
-bool Win32Socket::Shutdown() {
-  if (IsValid()) {
-    // Shutdown socket for both read and write.
-    int status = shutdown(socket_, SD_BOTH);
-    closesocket(socket_);
-    socket_ = INVALID_SOCKET;
-    return status == SOCKET_ERROR;
-  }
-  return true;
-}
-
-
-int Win32Socket::Send(const char* data, int len) const {
-  if (len <= 0) return 0;
-  int written = 0;
-  while (written < len) {
-    int status = send(socket_, data + written, len - written, 0);
-    if (status == 0) {
-      break;
-    } else if (status > 0) {
-      written += status;
-    } else {
-      return 0;
-    }
-  }
-  return written;
-}
-
-
-int Win32Socket::Receive(char* data, int len) const {
-  if (len <= 0) return 0;
-  int status = recv(socket_, data, len, 0);
-  return (status == SOCKET_ERROR) ? 0 : status;
-}
-
-
-bool Win32Socket::SetReuseAddress(bool reuse_address) {
-  BOOL on = reuse_address ? true : false;
-  int status = setsockopt(socket_, SOL_SOCKET, SO_REUSEADDR,
-                          reinterpret_cast<char*>(&on), sizeof(on));
-  return status == SOCKET_ERROR;
-}
-
-
-bool Socket::SetUp() {
-  // Initialize Winsock32
-  int err;
-  WSADATA winsock_data;
-  WORD version_requested = MAKEWORD(1, 0);
-  err = WSAStartup(version_requested, &winsock_data);
-  if (err != 0) {
-    PrintF("Unable to initialize Winsock, err = %d\n", Socket::LastError());
-  }
-
-  return err == 0;
-}
-
-
-int Socket::LastError() {
-  return WSAGetLastError();
-}
-
-
-uint16_t Socket::HToN(uint16_t value) {
-  return htons(value);
-}
-
-
-uint16_t Socket::NToH(uint16_t value) {
-  return ntohs(value);
-}
-
-
-uint32_t Socket::HToN(uint32_t value) {
-  return htonl(value);
-}
-
-
-uint32_t Socket::NToH(uint32_t value) {
-  return ntohl(value);
-}
-
-
-Socket* OS::CreateSocket() {
-  return new Win32Socket();
-}
-
-
-void OS::SetUp() {
-  // Seed the random number generator.
-  // Convert the current time to a 64-bit integer first, before converting it
-  // to an unsigned. Going directly can cause an overflow and the seed to be
-  // set to all ones. The seed will be identical for different instances that
-  // call this setup code within the same millisecond.
-  uint64_t seed = static_cast<uint64_t>(TimeCurrentMillis());
-  srand(static_cast<unsigned int>(seed));
-  limit_mutex = CreateMutex();
-}
-
-
-void OS::TearDown() {
-  delete limit_mutex;
-}
-
 
 } }  // namespace v8::internal
