@@ -1,17 +1,17 @@
 Name:           v8
-Version:        3.14.5
+Version:        3.29.8
 Release:        0
 Summary:        JavaScript Engine
 License:        BSD-3-Clause
 Group:          System/Libraries
 Url:            http://code.google.com/p/v8
-Source0:        %{name}.%{version}.tar.bz2
+Source0:        %{name}-%{version}.tar.bz2
 Source1001: 	v8.manifest
 BuildRequires:  gcc-c++
 BuildRequires:  lzma
 BuildRequires:  python-devel
 BuildRequires:  readline-devel
-ExclusiveArch:  %{ix86} x86_64 %arm
+ExclusiveArch:  %{ix86} x86_64 %arm aarch64
 
 %global somajor `echo %{version} | cut -f1 -d'.'`
 %global sominor `echo %{version} | cut -f2 -d'.'`
@@ -26,6 +26,9 @@ ExclusiveArch:  %{ix86} x86_64 %arm
 %endif
 %ifarch armv7l armv7hl
 %global target arm
+%endif
+%ifarch aarch64
+%global target arm64
 %endif
 
 %description
