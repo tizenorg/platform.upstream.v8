@@ -1,3 +1,6 @@
+* Wed Aug 20 2014 Chanho Park <chanho61.park@samsung.com> upstream/3.29.8-9-gf6621b0
+- Imported Upstream version 3.29.8
+
 * Tue Nov 19 2013 Ronan Le Martret <ronan@fridu.net> e4cf60b
 - Enable building v8 with gbs (DEVT-122)
 
