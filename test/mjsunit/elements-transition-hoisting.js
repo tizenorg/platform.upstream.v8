@@ -25,25 +25,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --smi-only-arrays --noparallel-recompilation
-// Flags: --notrack-allocation-sites
-
-// No tracking of allocation sites because it interfers with the semantics
-// the test is trying to ensure.
+// Flags: --allow-natives-syntax
+// Flags: --nostress-opt
 
 // Ensure that ElementsKind transitions in various situations are hoisted (or
 // not hoisted) correctly, don't change the semantics programs and don't trigger
 // deopt through hoisting in important situations.
 
-support_smi_only_arrays = %HasFastSmiElements(new Array(1,2,3,4,5,6));
-
-if (support_smi_only_arrays) {
-  print("Tests include smi-only arrays.");
-} else {
-  print("Tests do NOT include smi-only arrays.");
-}
-
-if (support_smi_only_arrays) {
+function test_wrapper() {
   // Make sure that a simple elements array transitions inside a loop before
   // stores to an array gets hoisted in a way that doesn't generate a deopt in
   // simple cases.}
@@ -63,7 +52,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testDoubleConversion4);
   testDoubleConversion4(new Array(5));
   testDoubleConversion4(new Array(5));
-  assertTrue(2 != %GetOptimizationStatus(testDoubleConversion4));
+  assertOptimized(testDoubleConversion4);
   %ClearFunctionTypeFeedback(testDoubleConversion4);
 
   // Make sure that non-element related map checks that are not preceded by
@@ -89,7 +78,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testExactMapHoisting);
   testExactMapHoisting(new Array(5));
   testExactMapHoisting(new Array(5));
-  assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting));
+  assertOptimized(testExactMapHoisting);
   %ClearFunctionTypeFeedback(testExactMapHoisting);
 
   // Make sure that non-element related map checks do NOT get hoisted if they
@@ -121,7 +110,7 @@ if (support_smi_only_arrays) {
   testExactMapHoisting2(new Array(5));
   testExactMapHoisting2(new Array(5));
   // Temporarily disabled - see bug 2176.
-  // assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting2));
+  // assertOptimized(testExactMapHoisting2);
   %ClearFunctionTypeFeedback(testExactMapHoisting2);
 
   // Make sure that non-element related map checks do get hoisted if they use
@@ -150,7 +139,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testExactMapHoisting3);
   testExactMapHoisting3(new Array(5));
   testExactMapHoisting3(new Array(5));
-  assertTrue(2 != %GetOptimizationStatus(testExactMapHoisting3));
+  assertOptimized(testExactMapHoisting3);
   %ClearFunctionTypeFeedback(testExactMapHoisting3);
 
   function testDominatingTransitionHoisting1(a) {
@@ -177,7 +166,7 @@ if (support_smi_only_arrays) {
   // TODO(verwaest) With current changes the elements transition gets hoisted
   // above the access, causing a deopt. We should update the type of access
   // rather than forbid hoisting the transition.
-  assertTrue(2 != %GetOptimizationStatus(testDominatingTransitionHoisting1));
+  assertOptimized(testDominatingTransitionHoisting1);
   %ClearFunctionTypeFeedback(testDominatingTransitionHoisting1);
   */
 
@@ -198,7 +187,7 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testHoistingWithSideEffect);
   testHoistingWithSideEffect(new Array(5));
   testHoistingWithSideEffect(new Array(5));
-  assertTrue(2 != %GetOptimizationStatus(testHoistingWithSideEffect));
+  assertOptimized(testHoistingWithSideEffect);
   %ClearFunctionTypeFeedback(testHoistingWithSideEffect);
 
   function testStraightLineDupeElinination(a,b,c,d,e,f) {
@@ -237,6 +226,11 @@ if (support_smi_only_arrays) {
   %OptimizeFunctionOnNextCall(testStraightLineDupeElinination);
   testStraightLineDupeElinination(new Array(5),0,0,0,0,0);
   testStraightLineDupeElinination(new Array(5),0,0,0,0,0);
-  assertTrue(2 != %GetOptimizationStatus(testStraightLineDupeElinination));
+  assertOptimized(testStraightLineDupeElinination);
   %ClearFunctionTypeFeedback(testStraightLineDupeElinination);
 }
+
+// The test is called in a test wrapper that has type feedback cleared to
+// prevent the influence of allocation-sites, which learn from transitions.
+test_wrapper();
+%ClearFunctionTypeFeedback(test_wrapper);

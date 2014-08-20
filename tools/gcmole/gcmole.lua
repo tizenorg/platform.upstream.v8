@@ -66,7 +66,7 @@ for i = 1, #arg do
    end
 end
 
-local ARCHS = ARGS[1] and { ARGS[1] } or { 'ia32', 'arm', 'x64' }
+local ARCHS = ARGS[1] and { ARGS[1] } or { 'ia32', 'arm', 'x64', 'arm64' }
 
 local io = require "io"
 local os = require "os"
@@ -93,17 +93,22 @@ end
 local function MakeClangCommandLine(plugin, plugin_args, triple, arch_define)
    if plugin_args then
      for i = 1, #plugin_args do
-        plugin_args[i] = "-plugin-arg-" .. plugin .. " " .. plugin_args[i]
+        plugin_args[i] = "-Xclang -plugin-arg-" .. plugin
+           .. " -Xclang " .. plugin_args[i]
      end
      plugin_args = " " .. table.concat(plugin_args, " ")
    end
-   return CLANG_BIN .. "/clang -cc1 -load " .. CLANG_PLUGINS .. "/libgcmole.so"
-      .. " -plugin "  .. plugin
+   return CLANG_BIN .. "/clang++ -std=c++11 -c "
+      .. " -Xclang -load -Xclang " .. CLANG_PLUGINS .. "/libgcmole.so"
+      .. " -Xclang -plugin -Xclang "  .. plugin
       .. (plugin_args or "")
-      .. " -triple " .. triple
+      .. " -Xclang -triple -Xclang " .. triple
       .. " -D" .. arch_define
       .. " -DENABLE_DEBUGGER_SUPPORT"
-      .. " -Isrc"
+      .. " -DV8_I18N_SUPPORT"
+      .. " -I./"
+      .. " -Ithird_party/icu/source/common"
+      .. " -Ithird_party/icu/source/i18n"
 end
 
 function InvokeClangPluginForEachFile(filenames, cfg, func)
@@ -113,7 +118,7 @@ function InvokeClangPluginForEachFile(filenames, cfg, func)
                                          cfg.arch_define)
    for _, filename in ipairs(filenames) do
       log("-- %s", filename)
-      local action = cmd_line .. " src/" .. filename .. " 2>&1"
+      local action = cmd_line .. " " .. filename .. " 2>&1"
       if FLAGS.verbose then print('popen ', action) end
       local pipe = io.popen(action)
       func(filename, pipe:lines())
@@ -126,19 +131,26 @@ end
 -- GYP file parsing
 
 local function ParseGYPFile()
-   local f = assert(io.open("tools/gyp/v8.gyp"), "failed to open GYP file")
-   local gyp = f:read('*a')
-   f:close()
+   local gyp = ""
+   local gyp_files = { "tools/gyp/v8.gyp", "test/cctest/cctest.gyp" }
+   for i = 1, #gyp_files do
+      local f = assert(io.open(gyp_files[i]), "failed to open GYP file")
+      local t = f:read('*a')
+      gyp = gyp .. t
+      f:close()
+   end
 
    local result = {}
 
    for condition, sources in
       gyp:gmatch "'sources': %[.-### gcmole%((.-)%) ###(.-)%]" do
-      local files = {}
+      if result[condition] == nil then result[condition] = {} end
       for file in sources:gmatch "'%.%./%.%./src/([^']-%.cc)'" do
-         table.insert(files, file)
+         table.insert(result[condition], "src/" .. file)
       end
-      result[condition] = files
+      for file in sources:gmatch "'(test-[^']-%.cc)'" do
+         table.insert(result[condition], "test/cctest/" .. file)
+      end
    end
 
    return result
@@ -193,7 +205,9 @@ local ARCHITECTURES = {
    arm = config { triple = "i586-unknown-linux",
                   arch_define = "V8_TARGET_ARCH_ARM" },
    x64 = config { triple = "x86_64-unknown-linux",
-                  arch_define = "V8_TARGET_ARCH_X64" }
+                  arch_define = "V8_TARGET_ARCH_X64" },
+   arm64 = config { triple = "x86_64-unknown-linux",
+                    arch_define = "V8_TARGET_ARCH_ARM64" },
 }
 
 -------------------------------------------------------------------------------

@@ -8,12 +8,22 @@
       'target_name': 'All',
       'type': 'none',
       'dependencies': [
-        '../preparser/preparser.gyp:*',
         '../samples/samples.gyp:*',
         '../src/d8.gyp:d8',
+        '../test/base-unittests/base-unittests.gyp:*',
         '../test/cctest/cctest.gyp:*',
+        '../test/compiler-unittests/compiler-unittests.gyp:*',
+        '../test/heap-unittests/heap-unittests.gyp:*',
+        '../test/runtime-unittests/runtime-unittests.gyp:*',
       ],
+      'conditions': [
+        ['component!="shared_library"', {
+          'dependencies': [
+            '../tools/lexer-shell.gyp:lexer-shell',
+            '../tools/lexer-shell.gyp:parser-shell',
+          ],
+        }],
+      ]
     }
   ]
 }
-

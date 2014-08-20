@@ -1,45 +1,28 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_FRAMES_INL_H_
 #define V8_FRAMES_INL_H_
 
-#include "frames.h"
-#include "isolate.h"
-#include "v8memory.h"
+#include "src/frames.h"
+#include "src/isolate.h"
+#include "src/v8memory.h"
 
 #if V8_TARGET_ARCH_IA32
-#include "ia32/frames-ia32.h"
+#include "src/ia32/frames-ia32.h"  // NOLINT
 #elif V8_TARGET_ARCH_X64
-#include "x64/frames-x64.h"
+#include "src/x64/frames-x64.h"  // NOLINT
+#elif V8_TARGET_ARCH_ARM64
+#include "src/arm64/frames-arm64.h"  // NOLINT
 #elif V8_TARGET_ARCH_ARM
-#include "arm/frames-arm.h"
+#include "src/arm/frames-arm.h"  // NOLINT
 #elif V8_TARGET_ARCH_MIPS
-#include "mips/frames-mips.h"
+#include "src/mips/frames-mips.h"  // NOLINT
+#elif V8_TARGET_ARCH_MIPS64
+#include "src/mips64/frames-mips64.h"  // NOLINT
+#elif V8_TARGET_ARCH_X87
+#include "src/x87/frames-x87.h"  // NOLINT
 #else
 #error Unsupported target architecture.
 #endif
@@ -199,6 +182,11 @@ inline Address StandardFrame::ComputePCAddress(Address fp) {
 }
 
 
+inline Address StandardFrame::ComputeConstantPoolAddress(Address fp) {
+  return fp + StandardFrameConstants::kConstantPoolOffset;
+}
+
+
 inline bool StandardFrame::IsArgumentsAdaptorFrame(Address fp) {
   Object* marker =
       Memory::Object_at(fp + StandardFrameConstants::kContextOffset);
@@ -220,7 +208,7 @@ inline JavaScriptFrame::JavaScriptFrame(StackFrameIteratorBase* iterator)
 
 Address JavaScriptFrame::GetParameterSlot(int index) const {
   int param_count = ComputeParametersCount();
-  ASSERT(-1 <= index && index < param_count);
+  DCHECK(-1 <= index && index < param_count);
   int parameter_offset = (param_count - index - 1) * kPointerSize;
   return caller_sp() + parameter_offset;
 }
@@ -233,10 +221,10 @@ Object* JavaScriptFrame::GetParameter(int index) const {
 
 inline Address JavaScriptFrame::GetOperandSlot(int index) const {
   Address base = fp() + JavaScriptFrameConstants::kLocal0Offset;
-  ASSERT(IsAddressAligned(base, kPointerSize));
-  ASSERT_EQ(type(), JAVA_SCRIPT);
-  ASSERT_LT(index, ComputeOperandsCount());
-  ASSERT_LE(0, index);
+  DCHECK(IsAddressAligned(base, kPointerSize));
+  DCHECK_EQ(type(), JAVA_SCRIPT);
+  DCHECK_LT(index, ComputeOperandsCount());
+  DCHECK_LE(0, index);
   // Operand stack grows down.
   return base - index * kPointerSize;
 }
@@ -252,9 +240,9 @@ inline int JavaScriptFrame::ComputeOperandsCount() const {
   // Base points to low address of first operand and stack grows down, so add
   // kPointerSize to get the actual stack size.
   intptr_t stack_size_in_bytes = (base + kPointerSize) - sp();
-  ASSERT(IsAligned(stack_size_in_bytes, kPointerSize));
-  ASSERT(type() == JAVA_SCRIPT);
-  ASSERT(stack_size_in_bytes >= 0);
+  DCHECK(IsAligned(stack_size_in_bytes, kPointerSize));
+  DCHECK(type() == JAVA_SCRIPT);
+  DCHECK(stack_size_in_bytes >= 0);
   return static_cast<int>(stack_size_in_bytes >> kPointerSizeLog2);
 }
 
@@ -274,10 +262,8 @@ inline bool JavaScriptFrame::has_adapted_arguments() const {
 }
 
 
-inline Object* JavaScriptFrame::function() const {
-  Object* result = function_slot_object();
-  ASSERT(result->IsJSFunction());
-  return result;
+inline JSFunction* JavaScriptFrame::function() const {
+  return JSFunction::cast(function_slot_object());
 }
 
 
@@ -331,15 +317,15 @@ inline JavaScriptFrame* JavaScriptFrameIterator::frame() const {
   // the JavaScript frame type, because we may encounter arguments
   // adaptor frames.
   StackFrame* frame = iterator_.frame();
-  ASSERT(frame->is_java_script() || frame->is_arguments_adaptor());
+  DCHECK(frame->is_java_script() || frame->is_arguments_adaptor());
   return static_cast<JavaScriptFrame*>(frame);
 }
 
 
-inline JavaScriptFrame* SafeStackFrameIterator::frame() const {
-  ASSERT(!done());
-  ASSERT(frame_->is_java_script());
-  return static_cast<JavaScriptFrame*>(frame_);
+inline StackFrame* SafeStackFrameIterator::frame() const {
+  DCHECK(!done());
+  DCHECK(frame_->is_java_script() || frame_->is_exit());
+  return frame_;
 }
 
 

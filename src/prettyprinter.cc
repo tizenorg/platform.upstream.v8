@@ -1,48 +1,26 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include <stdarg.h>
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "prettyprinter.h"
-#include "scopes.h"
-#include "platform.h"
+#include "src/ast-value-factory.h"
+#include "src/base/platform/platform.h"
+#include "src/prettyprinter.h"
+#include "src/scopes.h"
 
 namespace v8 {
 namespace internal {
 
 #ifdef DEBUG
 
-PrettyPrinter::PrettyPrinter() {
+PrettyPrinter::PrettyPrinter(Zone* zone) {
   output_ = NULL;
   size_ = 0;
   pos_ = 0;
-  InitializeAstVisitor();
+  InitializeAstVisitor(zone);
 }
 
 
@@ -156,10 +134,10 @@ void PrettyPrinter::VisitIfStatement(IfStatement* node) {
 
 void PrettyPrinter::VisitContinueStatement(ContinueStatement* node) {
   Print("continue");
-  ZoneStringList* labels = node->target()->labels();
+  ZoneList<const AstRawString*>* labels = node->target()->labels();
   if (labels != NULL) {
     Print(" ");
-    ASSERT(labels->length() > 0);  // guaranteed to have at least one entry
+    DCHECK(labels->length() > 0);  // guaranteed to have at least one entry
     PrintLiteral(labels->at(0), false);  // any label from the list is fine
   }
   Print(";");
@@ -168,10 +146,10 @@ void PrettyPrinter::VisitContinueStatement(ContinueStatement* node) {
 
 void PrettyPrinter::VisitBreakStatement(BreakStatement* node) {
   Print("break");
-  ZoneStringList* labels = node->target()->labels();
+  ZoneList<const AstRawString*>* labels = node->target()->labels();
   if (labels != NULL) {
     Print(" ");
-    ASSERT(labels->length() > 0);  // guaranteed to have at least one entry
+    DCHECK(labels->length() > 0);  // guaranteed to have at least one entry
     PrintLiteral(labels->at(0), false);  // any label from the list is fine
   }
   Print(";");
@@ -200,8 +178,22 @@ void PrettyPrinter::VisitSwitchStatement(SwitchStatement* node) {
   Print(") { ");
   ZoneList<CaseClause*>* cases = node->cases();
   for (int i = 0; i < cases->length(); i++)
-    PrintCaseClause(cases->at(i));
+    Visit(cases->at(i));
   Print("}");
+}
+
+
+void PrettyPrinter::VisitCaseClause(CaseClause* clause) {
+  if (clause->is_default()) {
+    Print("default");
+  } else {
+    Print("case ");
+    Visit(clause->label());
+  }
+  Print(": ");
+  PrintStatements(clause->statements());
+  if (clause->statements()->length() > 0)
+    Print(" ");
 }
 
 
@@ -297,10 +289,9 @@ void PrettyPrinter::VisitFunctionLiteral(FunctionLiteral* node) {
 }
 
 
-void PrettyPrinter::VisitSharedFunctionInfoLiteral(
-    SharedFunctionInfoLiteral* node) {
+void PrettyPrinter::VisitNativeFunctionLiteral(NativeFunctionLiteral* node) {
   Print("(");
-  PrintLiteral(node->shared_function_info(), true);
+  PrintLiteral(node->name(), false);
   Print(")");
 }
 
@@ -456,6 +447,11 @@ void PrettyPrinter::VisitThisFunction(ThisFunction* node) {
 }
 
 
+void PrettyPrinter::VisitSuperReference(SuperReference* node) {
+  Print("<super-reference>");
+}
+
+
 const char* PrettyPrinter::Print(AstNode* node) {
   Init();
   Visit(node);
@@ -480,15 +476,15 @@ const char* PrettyPrinter::PrintProgram(FunctionLiteral* program) {
 }
 
 
-void PrettyPrinter::PrintOut(AstNode* node) {
-  PrettyPrinter printer;
+void PrettyPrinter::PrintOut(Zone* zone, AstNode* node) {
+  PrettyPrinter printer(zone);
   PrintF("%s", printer.Print(node));
 }
 
 
 void PrettyPrinter::Init() {
   if (size_ == 0) {
-    ASSERT(output_ == NULL);
+    DCHECK(output_ == NULL);
     const int initial_size = 256;
     output_ = NewArray<char>(initial_size);
     size_ = initial_size;
@@ -502,9 +498,9 @@ void PrettyPrinter::Print(const char* format, ...) {
   for (;;) {
     va_list arguments;
     va_start(arguments, format);
-    int n = OS::VSNPrintF(Vector<char>(output_, size_) + pos_,
-                          format,
-                          arguments);
+    int n = VSNPrintF(Vector<char>(output_, size_) + pos_,
+                      format,
+                      arguments);
     va_end(arguments);
 
     if (n >= 0) {
@@ -516,7 +512,7 @@ void PrettyPrinter::Print(const char* format, ...) {
       const int slack = 32;
       int new_size = size_ + (size_ >> 1) + slack;
       char* new_output = NewArray<char>(new_size);
-      OS::MemCopy(new_output, output_, pos_);
+      MemCopy(new_output, output_, pos_);
       DeleteArray(output_);
       output_ = new_output;
       size_ = new_size;
@@ -534,7 +530,7 @@ void PrettyPrinter::PrintStatements(ZoneList<Statement*>* statements) {
 }
 
 
-void PrettyPrinter::PrintLabels(ZoneStringList* labels) {
+void PrettyPrinter::PrintLabels(ZoneList<const AstRawString*>* labels) {
   if (labels != NULL) {
     for (int i = 0; i < labels->length(); i++) {
       PrintLiteral(labels->at(i), false);
@@ -592,6 +588,11 @@ void PrettyPrinter::PrintLiteral(Handle<Object> value, bool quote) {
 }
 
 
+void PrettyPrinter::PrintLiteral(const AstRawString* value, bool quote) {
+  PrintLiteral(value->string(), quote);
+}
+
+
 void PrettyPrinter::PrintParameters(Scope* scope) {
   Print("(");
   for (int i = 0; i < scope->num_parameters(); i++) {
@@ -621,20 +622,6 @@ void PrettyPrinter::PrintFunctionLiteral(FunctionLiteral* function) {
 }
 
 
-void PrettyPrinter::PrintCaseClause(CaseClause* clause) {
-  if (clause->is_default()) {
-    Print("default");
-  } else {
-    Print("case ");
-    Visit(clause->label());
-  }
-  Print(": ");
-  PrintStatements(clause->statements());
-  if (clause->statements()->length() > 0)
-    Print(" ");
-}
-
-
 //-----------------------------------------------------------------------------
 
 class IndentedScope BASE_EMBEDDED {
@@ -658,12 +645,12 @@ class IndentedScope BASE_EMBEDDED {
 //-----------------------------------------------------------------------------
 
 
-AstPrinter::AstPrinter() : indent_(0) {
+AstPrinter::AstPrinter(Zone* zone) : PrettyPrinter(zone), indent_(0) {
 }
 
 
 AstPrinter::~AstPrinter() {
-  ASSERT(indent_ == 0);
+  DCHECK(indent_ == 0);
 }
 
 
@@ -692,15 +679,15 @@ void AstPrinter::PrintLiteralWithModeIndented(const char* info,
     PrintLiteralIndented(info, value, true);
   } else {
     EmbeddedVector<char, 256> buf;
-    int pos = OS::SNPrintF(buf, "%s (mode = %s", info,
-                           Variable::Mode2String(var->mode()));
-    OS::SNPrintF(buf + pos, ")");
+    int pos = SNPrintF(buf, "%s (mode = %s", info,
+                       Variable::Mode2String(var->mode()));
+    SNPrintF(buf + pos, ")");
     PrintLiteralIndented(buf.start(), value, true);
   }
 }
 
 
-void AstPrinter::PrintLabelsIndented(ZoneStringList* labels) {
+void AstPrinter::PrintLabelsIndented(ZoneList<const AstRawString*>* labels) {
   if (labels == NULL || labels->length() == 0) return;
   PrintIndented("LABELS ");
   PrintLabels(labels);
@@ -758,18 +745,6 @@ void AstPrinter::PrintStatements(ZoneList<Statement*>* statements) {
 void AstPrinter::PrintArguments(ZoneList<Expression*>* arguments) {
   for (int i = 0; i < arguments->length(); i++) {
     Visit(arguments->at(i));
-  }
-}
-
-
-void AstPrinter::PrintCaseClause(CaseClause* clause) {
-  if (clause->is_default()) {
-    IndentedScope indent(this, "DEFAULT");
-    PrintStatements(clause->statements());
-  } else {
-    IndentedScope indent(this, "CASE");
-    Visit(clause->label());
-    PrintStatements(clause->statements());
   }
 }
 
@@ -901,7 +876,19 @@ void AstPrinter::VisitSwitchStatement(SwitchStatement* node) {
   PrintLabelsIndented(node->labels());
   PrintIndentedVisit("TAG", node->tag());
   for (int i = 0; i < node->cases()->length(); i++) {
-    PrintCaseClause(node->cases()->at(i));
+    Visit(node->cases()->at(i));
+  }
+}
+
+
+void AstPrinter::VisitCaseClause(CaseClause* clause) {
+  if (clause->is_default()) {
+    IndentedScope indent(this, "DEFAULT");
+    PrintStatements(clause->statements());
+  } else {
+    IndentedScope indent(this, "CASE");
+    Visit(clause->label());
+    PrintStatements(clause->statements());
   }
 }
 
@@ -982,10 +969,9 @@ void AstPrinter::VisitFunctionLiteral(FunctionLiteral* node) {
 }
 
 
-void AstPrinter::VisitSharedFunctionInfoLiteral(
-    SharedFunctionInfoLiteral* node) {
-  IndentedScope indent(this, "FUNC LITERAL");
-  PrintLiteralIndented("SHARED INFO", node->shared_function_info(), true);
+void AstPrinter::VisitNativeFunctionLiteral(NativeFunctionLiteral* node) {
+  IndentedScope indent(this, "NATIVE FUNC LITERAL");
+  PrintLiteralIndented("NAME", node->name(), false);
 }
 
 
@@ -1058,21 +1044,21 @@ void AstPrinter::VisitArrayLiteral(ArrayLiteral* node) {
 void AstPrinter::VisitVariableProxy(VariableProxy* node) {
   Variable* var = node->var();
   EmbeddedVector<char, 128> buf;
-  int pos = OS::SNPrintF(buf, "VAR PROXY");
+  int pos = SNPrintF(buf, "VAR PROXY");
   switch (var->location()) {
     case Variable::UNALLOCATED:
       break;
     case Variable::PARAMETER:
-      OS::SNPrintF(buf + pos, " parameter[%d]", var->index());
+      SNPrintF(buf + pos, " parameter[%d]", var->index());
       break;
     case Variable::LOCAL:
-      OS::SNPrintF(buf + pos, " local[%d]", var->index());
+      SNPrintF(buf + pos, " local[%d]", var->index());
       break;
     case Variable::CONTEXT:
-      OS::SNPrintF(buf + pos, " context[%d]", var->index());
+      SNPrintF(buf + pos, " context[%d]", var->index());
       break;
     case Variable::LOOKUP:
-      OS::SNPrintF(buf + pos, " lookup");
+      SNPrintF(buf + pos, " lookup");
       break;
   }
   PrintLiteralWithModeIndented(buf.start(), var, node->name());
@@ -1139,8 +1125,8 @@ void AstPrinter::VisitUnaryOperation(UnaryOperation* node) {
 
 void AstPrinter::VisitCountOperation(CountOperation* node) {
   EmbeddedVector<char, 128> buf;
-  OS::SNPrintF(buf, "%s %s", (node->is_prefix() ? "PRE" : "POST"),
-               Token::Name(node->op()));
+  SNPrintF(buf, "%s %s", (node->is_prefix() ? "PRE" : "POST"),
+           Token::Name(node->op()));
   IndentedScope indent(this, buf.start());
   Visit(node->expression());
 }
@@ -1162,6 +1148,11 @@ void AstPrinter::VisitCompareOperation(CompareOperation* node) {
 
 void AstPrinter::VisitThisFunction(ThisFunction* node) {
   IndentedScope indent(this, "THIS-FUNCTION");
+}
+
+
+void AstPrinter::VisitSuperReference(SuperReference* node) {
+  IndentedScope indent(this, "SUPER-REFERENCE");
 }
 
 #endif  // DEBUG

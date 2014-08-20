@@ -29,6 +29,7 @@ var worker_scripts = [
   "../csvparser.js",
   "../splaytree.js",
   "../codemap.js",
+  "../consarray.js",
   "../profile.js",
   "../profile_view.js",
   "../logreader.js",
@@ -40,14 +41,6 @@ var worker_scripts = [
 
 function plotWorker() {
   var worker = null;
-
-  var delegateList = {
-    "log"     : log,
-    "error"   : logError,
-    "display" : display,
-    "range"   : setRange,
-    "script"  : scriptLoaded
-  }
 
   function initialize() {
     ui.freeze();
@@ -87,6 +80,16 @@ function plotWorker() {
     if (worker) worker.terminate();
     initialize();
   }
+
+  var delegateList = {
+    "log"         : log,
+    "error"       : logError,
+    "displayplot" : displayplot,
+    "displayprof" : displayprof,
+    "range"       : setRange,
+    "script"      : scriptLoaded,
+    "reset"       : this.reset
+  }
 }
 
 
@@ -97,15 +100,26 @@ function UIWrapper() {
                         "start",
                         "file"];
 
-  this.log = document.getElementById("log");
-  this.plot = document.getElementById('plot');
+  var other_elements = ["log",
+                        "plot",
+                        "prof",
+                        "instructions",
+                        "credits",
+                        "toggledisplay"];
+
   for (var i in input_elements) {
     var id = input_elements[i];
     this[id] = document.getElementById(id);
   }
 
+  for (var i in other_elements) {
+    var id = other_elements[i];
+    this[id] = document.getElementById(id);
+  }
+
   this.freeze = function() {
     this.plot.style.webkitFilter = "grayscale(1)";
+    this.prof.style.color = "#bbb";
     for (var i in input_elements) {
       this[input_elements[i]].disabled = true;
     }
@@ -113,6 +127,7 @@ function UIWrapper() {
 
   this.thaw = function() {
     this.plot.style.webkitFilter = "";
+    this.prof.style.color = "#000";
     for (var i in input_elements) {
       this[input_elements[i]].disabled = false;
     }
@@ -123,6 +138,34 @@ function UIWrapper() {
     this.log.value = "";
     this.range_start.value = "automatic";
     this.range_end.value = "automatic";
+    this.toggle("plot");
+    this.plot.src = "";
+    this.prof.value = "";
+  }
+
+  this.toggle = function(mode) {
+    if (mode) this.toggledisplay.next_mode = mode;
+    if (this.toggledisplay.next_mode == "plot") {
+      this.toggledisplay.next_mode = "prof";
+      this.plot.style.display = "block";
+      this.prof.style.display = "none";
+      this.toggledisplay.innerHTML = "Show profile";
+    } else {
+      this.toggledisplay.next_mode = "plot";
+      this.plot.style.display = "none";
+      this.prof.style.display = "block";
+      this.toggledisplay.innerHTML = "Show plot";
+    }
+  }
+
+  this.info = function(field) {
+    var down_arrow = "\u25bc";
+    var right_arrow = "\u25b6";
+    if (field && this[field].style.display != "none") field = null;  // Toggle.
+    this.credits.style.display = "none";
+    this.instructions.style.display = "none";
+    if (!field) return;
+    this[field].style.display = "block";
   }
 }
 
@@ -144,7 +187,7 @@ function logError(text) {
 }
 
 
-function display(args) {
+function displayplot(args) {
   if (error_logged) {
     log("Plot failed.\n\n");
   } else {
@@ -157,6 +200,15 @@ function display(args) {
   }
 
   ui.thaw();
+  ui.toggle("plot");
+}
+
+
+function displayprof(args) {
+  if (error_logged) return;
+  ui.prof.value = args;
+  this.prof.style.color = "";
+  ui.toggle("prof");
 }
 
 
@@ -182,9 +234,6 @@ function start(event) {
 function getSelectedFile() {
   var file = ui.file.files[0];
   if (!file) throw Error("No valid file selected.");
-  if (!file.type.toString().match(/text/)) {
-    throw Error("'" + escape(file.name) + "' is not a text file.");
-  }
   return file;
 }
 
@@ -217,11 +266,12 @@ function setRange(args) {
 
 
 function onload() {
-  kResX = 1600;
-  kResY = 900;
+  kResX = 1200;
+  kResY = 600;
   error_logged = false;
   ui = new UIWrapper();
   ui.reset();
+  ui.info(null);
   worker = new plotWorker();
   worker.reset();
 }

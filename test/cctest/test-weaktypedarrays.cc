@@ -27,12 +27,12 @@
 
 #include <stdlib.h>
 
-#include "v8.h"
-#include "api.h"
-#include "heap.h"
-#include "objects.h"
+#include "src/v8.h"
+#include "test/cctest/cctest.h"
 
-#include "cctest.h"
+#include "src/api.h"
+#include "src/heap/heap.h"
+#include "src/objects.h"
 
 using namespace v8::internal;
 
@@ -89,22 +89,24 @@ TEST(WeakArrayBuffersFromApi) {
   LocalContext context;
   Isolate* isolate = GetIsolateFrom(&context);
 
-  CHECK_EQ(0, CountArrayBuffersInWeakList(isolate->heap()));
+  int start = CountArrayBuffersInWeakList(isolate->heap());
   {
     v8::HandleScope s1(context->GetIsolate());
-    v8::Handle<v8::ArrayBuffer> ab1 = v8::ArrayBuffer::New(256);
+    v8::Handle<v8::ArrayBuffer> ab1 =
+        v8::ArrayBuffer::New(context->GetIsolate(), 256);
     {
       v8::HandleScope s2(context->GetIsolate());
-      v8::Handle<v8::ArrayBuffer> ab2 = v8::ArrayBuffer::New(128);
+      v8::Handle<v8::ArrayBuffer> ab2 =
+          v8::ArrayBuffer::New(context->GetIsolate(), 128);
 
       Handle<JSArrayBuffer> iab1 = v8::Utils::OpenHandle(*ab1);
       Handle<JSArrayBuffer> iab2 = v8::Utils::OpenHandle(*ab2);
-      CHECK_EQ(2, CountArrayBuffersInWeakList(isolate->heap()));
+      CHECK_EQ(2, CountArrayBuffersInWeakList(isolate->heap()) - start);
       CHECK(HasArrayBufferInWeakList(isolate->heap(), *iab1));
       CHECK(HasArrayBufferInWeakList(isolate->heap(), *iab2));
     }
     isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
-    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()) - start);
     {
       HandleScope scope2(isolate);
       Handle<JSArrayBuffer> iab1 = v8::Utils::OpenHandle(*ab1);
@@ -114,7 +116,7 @@ TEST(WeakArrayBuffersFromApi) {
   }
 
   isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
-  CHECK_EQ(0, CountArrayBuffersInWeakList(isolate->heap()));
+  CHECK_EQ(start, CountArrayBuffersInWeakList(isolate->heap()));
 }
 
 
@@ -122,11 +124,12 @@ TEST(WeakArrayBuffersFromScript) {
   v8::V8::Initialize();
   LocalContext context;
   Isolate* isolate = GetIsolateFrom(&context);
+  int start = CountArrayBuffersInWeakList(isolate->heap());
 
   for (int i = 1; i <= 3; i++) {
     // Create 3 array buffers, make i-th of them garbage,
     // validate correct state of array buffer weak list.
-    CHECK_EQ(0, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(start, CountArrayBuffersInWeakList(isolate->heap()));
     {
       v8::HandleScope scope(context->GetIsolate());
 
@@ -142,7 +145,7 @@ TEST(WeakArrayBuffersFromScript) {
         v8::Handle<v8::ArrayBuffer> ab3 =
             v8::Handle<v8::ArrayBuffer>::Cast(CompileRun("ab3"));
 
-        CHECK_EQ(3, CountArrayBuffersInWeakList(isolate->heap()));
+        CHECK_EQ(3, CountArrayBuffersInWeakList(isolate->heap()) - start);
         CHECK(HasArrayBufferInWeakList(isolate->heap(),
               *v8::Utils::OpenHandle(*ab1)));
         CHECK(HasArrayBufferInWeakList(isolate->heap(),
@@ -152,17 +155,17 @@ TEST(WeakArrayBuffersFromScript) {
       }
 
       i::ScopedVector<char> source(1024);
-      i::OS::SNPrintF(source, "ab%d = null;", i);
+      i::SNPrintF(source, "ab%d = null;", i);
       CompileRun(source.start());
       isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
 
-      CHECK_EQ(2, CountArrayBuffersInWeakList(isolate->heap()));
+      CHECK_EQ(2, CountArrayBuffersInWeakList(isolate->heap()) - start);
 
       {
         v8::HandleScope s2(context->GetIsolate());
         for (int j = 1; j <= 3; j++) {
           if (j == i) continue;
-          i::OS::SNPrintF(source, "ab%d", j);
+          i::SNPrintF(source, "ab%d", j);
           v8::Handle<v8::ArrayBuffer> ab =
               v8::Handle<v8::ArrayBuffer>::Cast(CompileRun(source.start()));
           CHECK(HasArrayBufferInWeakList(isolate->heap(),
@@ -174,7 +177,7 @@ TEST(WeakArrayBuffersFromScript) {
     }
 
     isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
-    CHECK_EQ(0, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(start, CountArrayBuffersInWeakList(isolate->heap()));
   }
 }
 
@@ -185,7 +188,8 @@ void TestViewFromApi() {
   Isolate* isolate = GetIsolateFrom(&context);
 
   v8::HandleScope s1(context->GetIsolate());
-  v8::Handle<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(2048);
+  v8::Handle<v8::ArrayBuffer> ab =
+      v8::ArrayBuffer::New(context->GetIsolate(), 2048);
   Handle<JSArrayBuffer> iab = v8::Utils::OpenHandle(*ab);
   {
     v8::HandleScope s2(context->GetIsolate());
@@ -266,6 +270,7 @@ static void TestTypedArrayFromScript(const char* constructor) {
   LocalContext context;
   Isolate* isolate = GetIsolateFrom(&context);
   v8::HandleScope scope(context->GetIsolate());
+  int start = CountArrayBuffersInWeakList(isolate->heap());
   CompileRun("var ab = new ArrayBuffer(2048);");
   for (int i = 1; i <= 3; i++) {
     // Create 3 typed arrays, make i-th of them garbage,
@@ -273,15 +278,15 @@ static void TestTypedArrayFromScript(const char* constructor) {
     v8::HandleScope s0(context->GetIsolate());
     i::ScopedVector<char> source(2048);
 
-    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()) - start);
 
     {
       v8::HandleScope s1(context->GetIsolate());
-      i::OS::SNPrintF(source,
-                  "var ta1 = new %s(ab);"
-                  "var ta2 = new %s(ab);"
-                  "var ta3 = new %s(ab)",
-                  constructor, constructor, constructor);
+      i::SNPrintF(source,
+              "var ta1 = new %s(ab);"
+              "var ta2 = new %s(ab);"
+              "var ta3 = new %s(ab)",
+              constructor, constructor, constructor);
 
       CompileRun(source.start());
       v8::Handle<v8::ArrayBuffer> ab =
@@ -292,7 +297,7 @@ static void TestTypedArrayFromScript(const char* constructor) {
           v8::Handle<TypedArray>::Cast(CompileRun("ta2"));
       v8::Handle<TypedArray> ta3 =
           v8::Handle<TypedArray>::Cast(CompileRun("ta3"));
-      CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()));
+      CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()) - start);
       Handle<JSArrayBuffer> iab = v8::Utils::OpenHandle(*ab);
       CHECK_EQ(3, CountViews(*iab));
       CHECK(HasViewInWeakList(*iab, *v8::Utils::OpenHandle(*ta1)));
@@ -300,11 +305,11 @@ static void TestTypedArrayFromScript(const char* constructor) {
       CHECK(HasViewInWeakList(*iab, *v8::Utils::OpenHandle(*ta3)));
     }
 
-    i::OS::SNPrintF(source, "ta%d = null;", i);
+    i::SNPrintF(source, "ta%d = null;", i);
     CompileRun(source.start());
     isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
 
-    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()) - start);
 
     {
       v8::HandleScope s2(context->GetIsolate());
@@ -314,7 +319,7 @@ static void TestTypedArrayFromScript(const char* constructor) {
       CHECK_EQ(2, CountViews(*iab));
       for (int j = 1; j <= 3; j++) {
         if (j == i) continue;
-        i::OS::SNPrintF(source, "ta%d", j);
+        i::SNPrintF(source, "ta%d", j);
         v8::Handle<TypedArray> ta =
             v8::Handle<TypedArray>::Cast(CompileRun(source.start()));
         CHECK(HasViewInWeakList(*iab, *v8::Utils::OpenHandle(*ta)));
@@ -324,7 +329,7 @@ static void TestTypedArrayFromScript(const char* constructor) {
     CompileRun("ta1 = null; ta2 = null; ta3 = null;");
     isolate->heap()->CollectAllGarbage(Heap::kAbortIncrementalMarkingMask);
 
-    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()));
+    CHECK_EQ(1, CountArrayBuffersInWeakList(isolate->heap()) - start);
 
     {
       v8::HandleScope s3(context->GetIsolate());

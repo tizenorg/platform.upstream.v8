@@ -25,28 +25,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --smi-only-arrays --expose-gc
-// Flags: --notrack_allocation_sites
+// Flags: --allow-natives-syntax --expose-gc
 
 // Limit the number of stress runs to reduce polymorphism it defeats some of the
 // assumptions made about how elements transitions work because transition stubs
 // end up going generic.
 // Flags: --stress-runs=2
-
-// Test element kind of objects.
-// Since --smi-only-arrays affects builtins, its default setting at compile
-// time sticks if built with snapshot.  If --smi-only-arrays is deactivated
-// by default, only a no-snapshot build actually has smi-only arrays enabled
-// in this test case.  Depending on whether smi-only arrays are actually
-// enabled, this test takes the appropriate code path to check smi-only arrays.
-
-support_smi_only_arrays = %HasFastSmiElements(new Array(1,2,3,4,5,6,7,8));
-
-if (support_smi_only_arrays) {
-  print("Tests include smi-only arrays.");
-} else {
-  print("Tests do NOT include smi-only arrays.");
-}
 
 var elements_kind = {
   fast_smi_only            :  'fast smi only elements',
@@ -101,39 +85,45 @@ function getKind(obj) {
 }
 
 function assertKind(expected, obj, name_opt) {
-  if (!support_smi_only_arrays &&
-      expected == elements_kind.fast_smi_only) {
-    expected = elements_kind.fast;
-  }
   assertEquals(expected, getKind(obj), name_opt);
 }
 
+%NeverOptimizeFunction(construct_smis);
+
+// This code exists to eliminate the learning influence of AllocationSites
+// on the following tests.
+var __sequence = 0;
+function make_array_string() {
+  this.__sequence = this.__sequence + 1;
+  return "/* " + this.__sequence + " */  [0, 0, 0];"
+}
+function make_array() {
+  return eval(make_array_string());
+}
+
 function construct_smis() {
-  try {} catch (e) {} // TODO(titzer): DisableOptimization
-  var a = [0, 0, 0];
+  var a = make_array();
   a[0] = 0;  // Send the COW array map to the steak house.
   assertKind(elements_kind.fast_smi_only, a);
   return a;
 }
 
+%NeverOptimizeFunction(construct_doubles);
 function construct_doubles() {
-  try {} catch (e) {} // TODO(titzer): DisableOptimization
   var a = construct_smis();
   a[0] = 1.5;
   assertKind(elements_kind.fast_double, a);
   return a;
 }
 
+%NeverOptimizeFunction(convert_mixed);
 function convert_mixed(array, value, kind) {
-  try {} catch (e) {} // TODO(titzer): DisableOptimization
   array[1] = value;
   assertKind(kind, array);
   assertEquals(value, array[1]);
 }
 
 function test1() {
-  if (!support_smi_only_arrays) return;
-
   // Test transition chain SMI->DOUBLE->FAST (crankshafted function will
   // transition to FAST directly).
   var smis = construct_smis();

@@ -1,47 +1,13 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
-#include "v8.h"
-#include "lithium-allocator-inl.h"
+#include "src/v8.h"
 
-#include "hydrogen.h"
-#include "string-stream.h"
-
-#if V8_TARGET_ARCH_IA32
-#include "ia32/lithium-ia32.h"
-#elif V8_TARGET_ARCH_X64
-#include "x64/lithium-x64.h"
-#elif V8_TARGET_ARCH_ARM
-#include "arm/lithium-arm.h"
-#elif V8_TARGET_ARCH_MIPS
-#include "mips/lithium-mips.h"
-#else
-#error "Unknown architecture."
-#endif
+#include "src/hydrogen.h"
+#include "src/lithium-inl.h"
+#include "src/lithium-allocator-inl.h"
+#include "src/string-stream.h"
 
 namespace v8 {
 namespace internal {
@@ -67,10 +33,11 @@ UsePosition::UsePosition(LifetimePosition pos,
       register_beneficial_(true) {
   if (operand_ != NULL && operand_->IsUnallocated()) {
     LUnallocated* unalloc = LUnallocated::cast(operand_);
-    requires_reg_ = unalloc->HasRegisterPolicy();
+    requires_reg_ = unalloc->HasRegisterPolicy() ||
+        unalloc->HasDoubleRegisterPolicy();
     register_beneficial_ = !unalloc->HasAnyPolicy();
   }
-  ASSERT(pos_.IsValid());
+  DCHECK(pos_.IsValid());
 }
 
 
@@ -90,7 +57,7 @@ bool UsePosition::RegisterIsBeneficial() const {
 
 
 void UseInterval::SplitAt(LifetimePosition pos, Zone* zone) {
-  ASSERT(Contains(pos) && pos.Value() != start().Value());
+  DCHECK(Contains(pos) && pos.Value() != start().Value());
   UseInterval* after = new(zone) UseInterval(pos, end_);
   after->next_ = next_;
   next_ = after;
@@ -104,7 +71,7 @@ void UseInterval::SplitAt(LifetimePosition pos, Zone* zone) {
 void LiveRange::Verify() const {
   UsePosition* cur = first_pos_;
   while (cur != NULL) {
-    ASSERT(Start().Value() <= cur->pos().Value() &&
+    DCHECK(Start().Value() <= cur->pos().Value() &&
            cur->pos().Value() <= End().Value());
     cur = cur->next();
   }
@@ -131,7 +98,7 @@ bool LiveRange::HasOverlap(UseInterval* target) const {
 LiveRange::LiveRange(int id, Zone* zone)
     : id_(id),
       spilled_(false),
-      is_double_(false),
+      kind_(UNALLOCATED_REGISTERS),
       assigned_register_(kInvalidAssignment),
       last_interval_(NULL),
       first_interval_(NULL),
@@ -145,19 +112,16 @@ LiveRange::LiveRange(int id, Zone* zone)
       spill_start_index_(kMaxInt) { }
 
 
-void LiveRange::set_assigned_register(int reg,
-                                      RegisterKind register_kind,
-                                      Zone* zone) {
-  ASSERT(!HasRegisterAssigned() && !IsSpilled());
+void LiveRange::set_assigned_register(int reg, Zone* zone) {
+  DCHECK(!HasRegisterAssigned() && !IsSpilled());
   assigned_register_ = reg;
-  is_double_ = (register_kind == DOUBLE_REGISTERS);
   ConvertOperands(zone);
 }
 
 
 void LiveRange::MakeSpilled(Zone* zone) {
-  ASSERT(!IsSpilled());
-  ASSERT(TopLevel()->HasAllocatedSpillOperand());
+  DCHECK(!IsSpilled());
+  DCHECK(TopLevel()->HasAllocatedSpillOperand());
   spilled_ = true;
   assigned_register_ = kInvalidAssignment;
   ConvertOperands(zone);
@@ -165,15 +129,15 @@ void LiveRange::MakeSpilled(Zone* zone) {
 
 
 bool LiveRange::HasAllocatedSpillOperand() const {
-  ASSERT(spill_operand_ != NULL);
+  DCHECK(spill_operand_ != NULL);
   return !spill_operand_->IsIgnored();
 }
 
 
 void LiveRange::SetSpillOperand(LOperand* operand) {
-  ASSERT(!operand->IsUnallocated());
-  ASSERT(spill_operand_ != NULL);
-  ASSERT(spill_operand_->IsIgnored());
+  DCHECK(!operand->IsUnallocated());
+  DCHECK(spill_operand_ != NULL);
+  DCHECK(spill_operand_->IsIgnored());
   spill_operand_->ConvertTo(operand->kind(), operand->index());
 }
 
@@ -233,16 +197,21 @@ bool LiveRange::CanBeSpilled(LifetimePosition pos) {
 LOperand* LiveRange::CreateAssignedOperand(Zone* zone) {
   LOperand* op = NULL;
   if (HasRegisterAssigned()) {
-    ASSERT(!IsSpilled());
-    if (IsDouble()) {
-      op = LDoubleRegister::Create(assigned_register(), zone);
-    } else {
-      op = LRegister::Create(assigned_register(), zone);
+    DCHECK(!IsSpilled());
+    switch (Kind()) {
+      case GENERAL_REGISTERS:
+        op = LRegister::Create(assigned_register(), zone);
+        break;
+      case DOUBLE_REGISTERS:
+        op = LDoubleRegister::Create(assigned_register(), zone);
+        break;
+      default:
+        UNREACHABLE();
     }
   } else if (IsSpilled()) {
-    ASSERT(!HasRegisterAssigned());
+    DCHECK(!HasRegisterAssigned());
     op = TopLevel()->GetSpillOperand();
-    ASSERT(!op->IsUnallocated());
+    DCHECK(!op->IsUnallocated());
   } else {
     LUnallocated* unalloc = new(zone) LUnallocated(LUnallocated::NONE);
     unalloc->set_virtual_register(id_);
@@ -279,8 +248,8 @@ void LiveRange::AdvanceLastProcessedMarker(
 void LiveRange::SplitAt(LifetimePosition position,
                         LiveRange* result,
                         Zone* zone) {
-  ASSERT(Start().Value() < position.Value());
-  ASSERT(result->IsEmpty());
+  DCHECK(Start().Value() < position.Value());
+  DCHECK(result->IsEmpty());
   // Find the last interval that ends before the position. If the
   // position is contained in one of the intervals in the chain, we
   // split that interval and use the first part.
@@ -352,6 +321,7 @@ void LiveRange::SplitAt(LifetimePosition position,
   // Link the new live range in the chain before any of the other
   // ranges linked from the range before the split.
   result->parent_ = (parent_ == NULL) ? this : parent_;
+  result->kind_ = result->parent_->kind_;
   result->next_ = next_;
   next_ = result;
 
@@ -383,9 +353,9 @@ bool LiveRange::ShouldBeAllocatedBefore(const LiveRange* other) const {
 
 void LiveRange::ShortenTo(LifetimePosition start) {
   LAllocator::TraceAlloc("Shorten live range %d to [%d\n", id_, start.Value());
-  ASSERT(first_interval_ != NULL);
-  ASSERT(first_interval_->start().Value() <= start.Value());
-  ASSERT(start.Value() < first_interval_->end().Value());
+  DCHECK(first_interval_ != NULL);
+  DCHECK(first_interval_->start().Value() <= start.Value());
+  DCHECK(start.Value() < first_interval_->end().Value());
   first_interval_->set_start(start);
 }
 
@@ -437,7 +407,7 @@ void LiveRange::AddUseInterval(LifetimePosition start,
       // Order of instruction's processing (see ProcessInstructions) guarantees
       // that each new use interval either precedes or intersects with
       // last added interval.
-      ASSERT(start.Value() < first_interval_->end().Value());
+      DCHECK(start.Value() < first_interval_->end().Value());
       first_interval_->start_ = Min(start, first_interval_->start_);
       first_interval_->end_ = Max(end, first_interval_->end_);
     }
@@ -480,11 +450,11 @@ void LiveRange::ConvertOperands(Zone* zone) {
   LOperand* op = CreateAssignedOperand(zone);
   UsePosition* use_pos = first_pos();
   while (use_pos != NULL) {
-    ASSERT(Start().Value() <= use_pos->pos().Value() &&
+    DCHECK(Start().Value() <= use_pos->pos().Value() &&
            use_pos->pos().Value() <= End().Value());
 
     if (use_pos->HasOperand()) {
-      ASSERT(op->IsRegister() || op->IsDoubleRegister() ||
+      DCHECK(op->IsRegister() || op->IsDoubleRegister() ||
              !use_pos->RequiresRegister());
       use_pos->operand()->ConvertTo(op->kind(), op->index());
     }
@@ -506,7 +476,7 @@ bool LiveRange::Covers(LifetimePosition position) {
   for (UseInterval* interval = start_search;
        interval != NULL;
        interval = interval->next()) {
-    ASSERT(interval->next() == NULL ||
+    DCHECK(interval->next() == NULL ||
            interval->next()->start().Value() >= interval->start().Value());
     AdvanceLastProcessedMarker(interval, position);
     if (interval->Contains(position)) return true;
@@ -553,7 +523,7 @@ LAllocator::LAllocator(int num_values, HGraph* graph)
       reusable_slots_(8, zone()),
       next_virtual_register_(num_values),
       first_artificial_register_(num_values),
-      mode_(GENERAL_REGISTERS),
+      mode_(UNALLOCATED_REGISTERS),
       num_registers_(-1),
       graph_(graph),
       has_osr_entry_(false),
@@ -624,7 +594,7 @@ LOperand* LAllocator::AllocateFixed(LUnallocated* operand,
                                     int pos,
                                     bool is_tagged) {
   TraceAlloc("Allocating fixed reg for op %d\n", operand->virtual_register());
-  ASSERT(operand->HasFixedPolicy());
+  DCHECK(operand->HasFixedPolicy());
   if (operand->HasFixedSlotPolicy()) {
     operand->ConvertTo(LOperand::STACK_SLOT, operand->fixed_slot_index());
   } else if (operand->HasFixedRegisterPolicy()) {
@@ -648,12 +618,13 @@ LOperand* LAllocator::AllocateFixed(LUnallocated* operand,
 
 
 LiveRange* LAllocator::FixedLiveRangeFor(int index) {
-  ASSERT(index < Register::kMaxNumAllocatableRegisters);
+  DCHECK(index < Register::kMaxNumAllocatableRegisters);
   LiveRange* result = fixed_live_ranges_[index];
   if (result == NULL) {
     result = new(zone()) LiveRange(FixedLiveRangeID(index), chunk()->zone());
-    ASSERT(result->IsFixed());
-    SetLiveRangeAssignedRegister(result, index, GENERAL_REGISTERS);
+    DCHECK(result->IsFixed());
+    result->kind_ = GENERAL_REGISTERS;
+    SetLiveRangeAssignedRegister(result, index);
     fixed_live_ranges_[index] = result;
   }
   return result;
@@ -661,13 +632,14 @@ LiveRange* LAllocator::FixedLiveRangeFor(int index) {
 
 
 LiveRange* LAllocator::FixedDoubleLiveRangeFor(int index) {
-  ASSERT(index < DoubleRegister::NumAllocatableRegisters());
+  DCHECK(index < DoubleRegister::NumAllocatableRegisters());
   LiveRange* result = fixed_double_live_ranges_[index];
   if (result == NULL) {
     result = new(zone()) LiveRange(FixedDoubleLiveRangeID(index),
                                    chunk()->zone());
-    ASSERT(result->IsFixed());
-    SetLiveRangeAssignedRegister(result, index, DOUBLE_REGISTERS);
+    DCHECK(result->IsFixed());
+    result->kind_ = DOUBLE_REGISTERS;
+    SetLiveRangeAssignedRegister(result, index);
     fixed_double_live_ranges_[index] = result;
   }
   return result;
@@ -855,7 +827,7 @@ void LAllocator::MeetConstraintsBetween(LInstruction* first,
       } else if (cur_input->HasWritableRegisterPolicy()) {
         // The live range of writable input registers always goes until the end
         // of the instruction.
-        ASSERT(!cur_input->IsUsedAtStart());
+        DCHECK(!cur_input->IsUsedAtStart());
 
         LUnallocated* input_copy = cur_input->CopyUnconstrained(
             chunk()->zone());
@@ -955,7 +927,7 @@ void LAllocator::ProcessInstructions(HBasicBlock* block, BitVector* live) {
         }
       }
     } else {
-      ASSERT(!IsGapAt(index));
+      DCHECK(!IsGapAt(index));
       LInstruction* instr = InstructionAt(index);
 
       if (instr != NULL) {
@@ -979,7 +951,7 @@ void LAllocator::ProcessInstructions(HBasicBlock* block, BitVector* live) {
           }
         }
 
-        if (instr->ClobbersDoubleRegisters()) {
+        if (instr->ClobbersDoubleRegisters(isolate())) {
           for (int i = 0; i < DoubleRegister::NumAllocatableRegisters(); ++i) {
             if (output == NULL || !output->IsDoubleRegister() ||
                 output->index() != i) {
@@ -1021,6 +993,15 @@ void LAllocator::ProcessInstructions(HBasicBlock* block, BitVector* live) {
           }
           Use(block_start_position, curr_position.InstructionEnd(), temp, NULL);
           Define(curr_position, temp, NULL);
+
+          if (temp->IsUnallocated()) {
+            LUnallocated* temp_unalloc = LUnallocated::cast(temp);
+            if (temp_unalloc->HasDoubleRegisterPolicy()) {
+              double_artificial_registers_.Add(
+                  temp_unalloc->virtual_register() - first_artificial_register_,
+                  zone());
+            }
+          }
         }
       }
     }
@@ -1044,7 +1025,7 @@ void LAllocator::ResolvePhis(HBasicBlock* block) {
         HConstant* constant = HConstant::cast(op);
         operand = chunk_->DefineConstantOperand(constant);
       } else {
-        ASSERT(!op->EmitAtUses());
+        DCHECK(!op->EmitAtUses());
         LUnallocated* unalloc =
             new(chunk()->zone()) LUnallocated(LUnallocated::ANY);
         unalloc->set_virtual_register(op->id());
@@ -1086,7 +1067,7 @@ void LAllocator::ResolvePhis(HBasicBlock* block) {
 
 
 bool LAllocator::Allocate(LChunk* chunk) {
-  ASSERT(chunk_ == NULL);
+  DCHECK(chunk_ == NULL);
   chunk_ = static_cast<LPlatformChunk*>(chunk);
   assigned_registers_ =
       new(chunk->zone()) BitVector(Register::NumAllocatableRegisters(),
@@ -1111,7 +1092,6 @@ bool LAllocator::Allocate(LChunk* chunk) {
 
 void LAllocator::MeetRegisterConstraints() {
   LAllocatorPhase phase("L_Register constraints", this);
-  first_artificial_register_ = next_virtual_register_;
   const ZoneList<HBasicBlock*>* blocks = graph_->blocks();
   for (int i = 0; i < blocks->length(); ++i) {
     HBasicBlock* block = blocks->at(i);
@@ -1145,18 +1125,18 @@ void LAllocator::ResolveControlFlow(LiveRange* range,
   LiveRange* cur_range = range;
   while (cur_range != NULL && (cur_cover == NULL || pred_cover == NULL)) {
     if (cur_range->CanCover(cur_start)) {
-      ASSERT(cur_cover == NULL);
+      DCHECK(cur_cover == NULL);
       cur_cover = cur_range;
     }
     if (cur_range->CanCover(pred_end)) {
-      ASSERT(pred_cover == NULL);
+      DCHECK(pred_cover == NULL);
       pred_cover = cur_range;
     }
     cur_range = cur_range->next();
   }
 
   if (cur_cover->IsSpilled()) return;
-  ASSERT(pred_cover != NULL && cur_cover != NULL);
+  DCHECK(pred_cover != NULL && cur_cover != NULL);
   if (pred_cover != cur_cover) {
     LOperand* pred_op = pred_cover->CreateAssignedOperand(chunk()->zone());
     LOperand* cur_op = cur_cover->CreateAssignedOperand(chunk()->zone());
@@ -1165,7 +1145,7 @@ void LAllocator::ResolveControlFlow(LiveRange* range,
       if (block->predecessors()->length() == 1) {
         gap = GapAt(block->first_instruction_index());
       } else {
-        ASSERT(pred->end()->SecondSuccessor() == NULL);
+        DCHECK(pred->end()->SecondSuccessor() == NULL);
         gap = GetLastGap(pred);
 
         // We are going to insert a move before the branch instruction.
@@ -1314,7 +1294,7 @@ void LAllocator::BuildLiveRanges() {
           break;
         }
       }
-      ASSERT(hint != NULL);
+      DCHECK(hint != NULL);
 
       LifetimePosition block_start = LifetimePosition::FromInstructionIndex(
               block->first_instruction_index());
@@ -1361,19 +1341,25 @@ void LAllocator::BuildLiveRanges() {
           CodeStub::Major major_key = chunk_->info()->code_stub()->MajorKey();
           PrintF("Function: %s\n", CodeStub::MajorName(major_key, false));
         } else {
-          ASSERT(chunk_->info()->IsOptimizing());
+          DCHECK(chunk_->info()->IsOptimizing());
           AllowHandleDereference allow_deref;
           PrintF("Function: %s\n",
-                 *chunk_->info()->function()->debug_name()->ToCString());
+                 chunk_->info()->function()->debug_name()->ToCString().get());
         }
         PrintF("Value %d used before first definition!\n", operand_index);
         LiveRange* range = LiveRangeFor(operand_index);
         PrintF("First use is at %d\n", range->first_pos()->pos().Value());
         iterator.Advance();
       }
-      ASSERT(!found);
+      DCHECK(!found);
     }
 #endif
+  }
+
+  for (int i = 0; i < live_ranges_.length(); ++i) {
+    if (live_ranges_[i] != NULL) {
+      live_ranges_[i]->kind_ = RequiredRegisterKind(live_ranges_[i]->id());
+    }
   }
 }
 
@@ -1394,7 +1380,7 @@ void LAllocator::PopulatePointerMaps() {
   LAllocatorPhase phase("L_Populate pointer maps", this);
   const ZoneList<LPointerMap*>* pointer_maps = chunk_->pointer_maps();
 
-  ASSERT(SafePointsAreInOrder());
+  DCHECK(SafePointsAreInOrder());
 
   // Iterate over all safe point positions and record a pointer
   // for all spilled live ranges at this point.
@@ -1416,7 +1402,7 @@ void LAllocator::PopulatePointerMaps() {
     for (LiveRange* cur = range; cur != NULL; cur = cur->next()) {
       LifetimePosition this_end = cur->End();
       if (this_end.InstructionIndex() > end) end = this_end.InstructionIndex();
-      ASSERT(cur->Start().InstructionIndex() >= start);
+      DCHECK(cur->Start().InstructionIndex() >= start);
     }
 
     // Most of the ranges are in order, but not all.  Keep an eye on when
@@ -1470,7 +1456,7 @@ void LAllocator::PopulatePointerMaps() {
                    "at safe point %d\n",
                    cur->id(), cur->Start().Value(), safe_point);
         LOperand* operand = cur->CreateAssignedOperand(chunk()->zone());
-        ASSERT(!operand->IsStackSlot());
+        DCHECK(!operand->IsStackSlot());
         map->RecordPointer(operand, chunk()->zone());
       }
     }
@@ -1481,6 +1467,7 @@ void LAllocator::PopulatePointerMaps() {
 void LAllocator::AllocateGeneralRegisters() {
   LAllocatorPhase phase("L_Allocate general registers", this);
   num_registers_ = Register::NumAllocatableRegisters();
+  mode_ = GENERAL_REGISTERS;
   AllocateRegisters();
 }
 
@@ -1494,21 +1481,21 @@ void LAllocator::AllocateDoubleRegisters() {
 
 
 void LAllocator::AllocateRegisters() {
-  ASSERT(unhandled_live_ranges_.is_empty());
+  DCHECK(unhandled_live_ranges_.is_empty());
 
   for (int i = 0; i < live_ranges_.length(); ++i) {
     if (live_ranges_[i] != NULL) {
-      if (RequiredRegisterKind(live_ranges_[i]->id()) == mode_) {
+      if (live_ranges_[i]->Kind() == mode_) {
         AddToUnhandledUnsorted(live_ranges_[i]);
       }
     }
   }
   SortUnhandled();
-  ASSERT(UnhandledIsSorted());
+  DCHECK(UnhandledIsSorted());
 
-  ASSERT(reusable_slots_.is_empty());
-  ASSERT(active_live_ranges_.is_empty());
-  ASSERT(inactive_live_ranges_.is_empty());
+  DCHECK(reusable_slots_.is_empty());
+  DCHECK(active_live_ranges_.is_empty());
+  DCHECK(inactive_live_ranges_.is_empty());
 
   if (mode_ == DOUBLE_REGISTERS) {
     for (int i = 0; i < DoubleRegister::NumAllocatableRegisters(); ++i) {
@@ -1518,6 +1505,7 @@ void LAllocator::AllocateRegisters() {
       }
     }
   } else {
+    DCHECK(mode_ == GENERAL_REGISTERS);
     for (int i = 0; i < fixed_live_ranges_.length(); ++i) {
       LiveRange* current = fixed_live_ranges_.at(i);
       if (current != NULL) {
@@ -1527,9 +1515,9 @@ void LAllocator::AllocateRegisters() {
   }
 
   while (!unhandled_live_ranges_.is_empty()) {
-    ASSERT(UnhandledIsSorted());
+    DCHECK(UnhandledIsSorted());
     LiveRange* current = unhandled_live_ranges_.RemoveLast();
-    ASSERT(UnhandledIsSorted());
+    DCHECK(UnhandledIsSorted());
     LifetimePosition position = current->Start();
 #ifdef DEBUG
     allocation_finger_ = position;
@@ -1556,7 +1544,7 @@ void LAllocator::AllocateRegisters() {
         // the register is too close to the start of live range.
         SpillBetween(current, current->Start(), pos->pos());
         if (!AllocationOk()) return;
-        ASSERT(UnhandledIsSorted());
+        DCHECK(UnhandledIsSorted());
         continue;
       }
     }
@@ -1583,7 +1571,7 @@ void LAllocator::AllocateRegisters() {
       }
     }
 
-    ASSERT(!current->HasRegisterAssigned() && !current->IsSpilled());
+    DCHECK(!current->HasRegisterAssigned() && !current->IsSpilled());
 
     bool result = TryAllocateFreeReg(current);
     if (!AllocationOk()) return;
@@ -1615,7 +1603,7 @@ void LAllocator::TraceAlloc(const char* msg, ...) {
   if (FLAG_trace_alloc) {
     va_list arguments;
     va_start(arguments, msg);
-    OS::VPrint(msg, arguments);
+    base::OS::VPrint(msg, arguments);
     va_end(arguments);
   }
 }
@@ -1657,33 +1645,33 @@ void LAllocator::AddToInactive(LiveRange* range) {
 
 void LAllocator::AddToUnhandledSorted(LiveRange* range) {
   if (range == NULL || range->IsEmpty()) return;
-  ASSERT(!range->HasRegisterAssigned() && !range->IsSpilled());
-  ASSERT(allocation_finger_.Value() <= range->Start().Value());
+  DCHECK(!range->HasRegisterAssigned() && !range->IsSpilled());
+  DCHECK(allocation_finger_.Value() <= range->Start().Value());
   for (int i = unhandled_live_ranges_.length() - 1; i >= 0; --i) {
     LiveRange* cur_range = unhandled_live_ranges_.at(i);
     if (range->ShouldBeAllocatedBefore(cur_range)) {
       TraceAlloc("Add live range %d to unhandled at %d\n", range->id(), i + 1);
       unhandled_live_ranges_.InsertAt(i + 1, range, zone());
-      ASSERT(UnhandledIsSorted());
+      DCHECK(UnhandledIsSorted());
       return;
     }
   }
   TraceAlloc("Add live range %d to unhandled at start\n", range->id());
   unhandled_live_ranges_.InsertAt(0, range, zone());
-  ASSERT(UnhandledIsSorted());
+  DCHECK(UnhandledIsSorted());
 }
 
 
 void LAllocator::AddToUnhandledUnsorted(LiveRange* range) {
   if (range == NULL || range->IsEmpty()) return;
-  ASSERT(!range->HasRegisterAssigned() && !range->IsSpilled());
+  DCHECK(!range->HasRegisterAssigned() && !range->IsSpilled());
   TraceAlloc("Add live range %d to unhandled unsorted at end\n", range->id());
   unhandled_live_ranges_.Add(range, zone());
 }
 
 
 static int UnhandledSortHelper(LiveRange* const* a, LiveRange* const* b) {
-  ASSERT(!(*a)->ShouldBeAllocatedBefore(*b) ||
+  DCHECK(!(*a)->ShouldBeAllocatedBefore(*b) ||
          !(*b)->ShouldBeAllocatedBefore(*a));
   if ((*a)->ShouldBeAllocatedBefore(*b)) return 1;
   if ((*b)->ShouldBeAllocatedBefore(*a)) return -1;
@@ -1737,7 +1725,7 @@ LOperand* LAllocator::TryReuseSpillSlot(LiveRange* range) {
 
 
 void LAllocator::ActiveToHandled(LiveRange* range) {
-  ASSERT(active_live_ranges_.Contains(range));
+  DCHECK(active_live_ranges_.Contains(range));
   active_live_ranges_.RemoveElement(range);
   TraceAlloc("Moving live range %d from active to handled\n", range->id());
   FreeSpillSlot(range);
@@ -1745,7 +1733,7 @@ void LAllocator::ActiveToHandled(LiveRange* range) {
 
 
 void LAllocator::ActiveToInactive(LiveRange* range) {
-  ASSERT(active_live_ranges_.Contains(range));
+  DCHECK(active_live_ranges_.Contains(range));
   active_live_ranges_.RemoveElement(range);
   inactive_live_ranges_.Add(range, zone());
   TraceAlloc("Moving live range %d from active to inactive\n", range->id());
@@ -1753,7 +1741,7 @@ void LAllocator::ActiveToInactive(LiveRange* range) {
 
 
 void LAllocator::InactiveToHandled(LiveRange* range) {
-  ASSERT(inactive_live_ranges_.Contains(range));
+  DCHECK(inactive_live_ranges_.Contains(range));
   inactive_live_ranges_.RemoveElement(range);
   TraceAlloc("Moving live range %d from inactive to handled\n", range->id());
   FreeSpillSlot(range);
@@ -1761,7 +1749,7 @@ void LAllocator::InactiveToHandled(LiveRange* range) {
 
 
 void LAllocator::InactiveToActive(LiveRange* range) {
-  ASSERT(inactive_live_ranges_.Contains(range));
+  DCHECK(inactive_live_ranges_.Contains(range));
   inactive_live_ranges_.RemoveElement(range);
   active_live_ranges_.Add(range, zone());
   TraceAlloc("Moving live range %d from inactive to active\n", range->id());
@@ -1789,7 +1777,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
 
   for (int i = 0; i < inactive_live_ranges_.length(); ++i) {
     LiveRange* cur_inactive = inactive_live_ranges_.at(i);
-    ASSERT(cur_inactive->End().Value() > current->Start().Value());
+    DCHECK(cur_inactive->End().Value() > current->Start().Value());
     LifetimePosition next_intersection =
         cur_inactive->FirstIntersection(current);
     if (!next_intersection.IsValid()) continue;
@@ -1812,7 +1800,7 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
       TraceAlloc("Assigning preferred reg %s to live range %d\n",
                  RegisterName(register_index),
                  current->id());
-      SetLiveRangeAssignedRegister(current, register_index, mode_);
+      SetLiveRangeAssignedRegister(current, register_index);
       return true;
     }
   }
@@ -1843,11 +1831,11 @@ bool LAllocator::TryAllocateFreeReg(LiveRange* current) {
 
   // Register reg is available at the range start and is free until
   // the range end.
-  ASSERT(pos.Value() >= current->End().Value());
+  DCHECK(pos.Value() >= current->End().Value());
   TraceAlloc("Assigning free reg %s to live range %d\n",
              RegisterName(reg),
              current->id());
-  SetLiveRangeAssignedRegister(current, reg, mode_);
+  SetLiveRangeAssignedRegister(current, reg);
 
   return true;
 }
@@ -1889,7 +1877,7 @@ void LAllocator::AllocateBlockedReg(LiveRange* current) {
 
   for (int i = 0; i < inactive_live_ranges_.length(); ++i) {
     LiveRange* range = inactive_live_ranges_.at(i);
-    ASSERT(range->End().Value() > current->Start().Value());
+    DCHECK(range->End().Value() > current->Start().Value());
     LifetimePosition next_intersection = range->FirstIntersection(current);
     if (!next_intersection.IsValid()) continue;
     int cur_reg = range->assigned_register();
@@ -1928,11 +1916,11 @@ void LAllocator::AllocateBlockedReg(LiveRange* current) {
   }
 
   // Register reg is not blocked for the whole range.
-  ASSERT(block_pos[reg].Value() >= current->End().Value());
+  DCHECK(block_pos[reg].Value() >= current->End().Value());
   TraceAlloc("Assigning blocked reg %s to live range %d\n",
              RegisterName(reg),
              current->id());
-  SetLiveRangeAssignedRegister(current, reg, mode_);
+  SetLiveRangeAssignedRegister(current, reg);
 
   // This register was not free. Thus we need to find and spill
   // parts of active and inactive live regions that use the same register
@@ -1975,7 +1963,7 @@ LifetimePosition LAllocator::FindOptimalSpillingPos(LiveRange* range,
 
 
 void LAllocator::SplitAndSpillIntersecting(LiveRange* current) {
-  ASSERT(current->HasRegisterAssigned());
+  DCHECK(current->HasRegisterAssigned());
   int reg = current->assigned_register();
   LifetimePosition split_pos = current->Start();
   for (int i = 0; i < active_live_ranges_.length(); ++i) {
@@ -2004,7 +1992,7 @@ void LAllocator::SplitAndSpillIntersecting(LiveRange* current) {
 
   for (int i = 0; i < inactive_live_ranges_.length(); ++i) {
     LiveRange* range = inactive_live_ranges_[i];
-    ASSERT(range->End().Value() > current->Start().Value());
+    DCHECK(range->End().Value() > current->Start().Value());
     if (range->assigned_register() == reg && !range->IsFixed()) {
       LifetimePosition next_intersection = range->FirstIntersection(current);
       if (next_intersection.IsValid()) {
@@ -2031,14 +2019,14 @@ bool LAllocator::IsBlockBoundary(LifetimePosition pos) {
 
 
 LiveRange* LAllocator::SplitRangeAt(LiveRange* range, LifetimePosition pos) {
-  ASSERT(!range->IsFixed());
+  DCHECK(!range->IsFixed());
   TraceAlloc("Splitting live range %d at %d\n", range->id(), pos.Value());
 
   if (pos.Value() <= range->Start().Value()) return range;
 
   // We can't properly connect liveranges if split occured at the end
   // of control instruction.
-  ASSERT(pos.IsInstructionStart() ||
+  DCHECK(pos.IsInstructionStart() ||
          !chunk_->instructions()->at(pos.InstructionIndex())->IsControl());
 
   int vreg = GetVirtualRegister();
@@ -2052,14 +2040,14 @@ LiveRange* LAllocator::SplitRangeAt(LiveRange* range, LifetimePosition pos) {
 LiveRange* LAllocator::SplitBetween(LiveRange* range,
                                     LifetimePosition start,
                                     LifetimePosition end) {
-  ASSERT(!range->IsFixed());
+  DCHECK(!range->IsFixed());
   TraceAlloc("Splitting live range %d in position between [%d, %d]\n",
              range->id(),
              start.Value(),
              end.Value());
 
   LifetimePosition split_pos = FindOptimalSplitPos(start, end);
-  ASSERT(split_pos.Value() >= start.Value());
+  DCHECK(split_pos.Value() >= start.Value());
   return SplitRangeAt(range, split_pos);
 }
 
@@ -2068,7 +2056,7 @@ LifetimePosition LAllocator::FindOptimalSplitPos(LifetimePosition start,
                                                  LifetimePosition end) {
   int start_instr = start.InstructionIndex();
   int end_instr = end.InstructionIndex();
-  ASSERT(start_instr <= end_instr);
+  DCHECK(start_instr <= end_instr);
 
   // We have no choice
   if (start_instr == end_instr) return end;
@@ -2130,7 +2118,7 @@ void LAllocator::SpillBetweenUntil(LiveRange* range,
         end.PrevInstruction().InstructionEnd());
     if (!AllocationOk()) return;
 
-    ASSERT(third_part != second_part);
+    DCHECK(third_part != second_part);
 
     Spill(second_part);
     AddToUnhandledSorted(third_part);
@@ -2143,13 +2131,13 @@ void LAllocator::SpillBetweenUntil(LiveRange* range,
 
 
 void LAllocator::Spill(LiveRange* range) {
-  ASSERT(!range->IsSpilled());
+  DCHECK(!range->IsSpilled());
   TraceAlloc("Spilling live range %d\n", range->id());
   LiveRange* first = range->TopLevel();
 
   if (!first->HasAllocatedSpillOperand()) {
     LOperand* op = TryReuseSpillSlot(range);
-    if (op == NULL) op = chunk_->GetNextSpillSlot(mode_ == DOUBLE_REGISTERS);
+    if (op == NULL) op = chunk_->GetNextSpillSlot(range->Kind());
     first->SetSpillOperand(op);
   }
   range->MakeSpilled(chunk()->zone());
@@ -2189,7 +2177,7 @@ LAllocatorPhase::~LAllocatorPhase() {
   if (FLAG_hydrogen_stats) {
     unsigned size = allocator_->zone()->allocation_size() -
                     allocator_zone_start_allocation_size_;
-    isolate()->GetHStatistics()->SaveTiming(name(), 0, size);
+    isolate()->GetHStatistics()->SaveTiming(name(), base::TimeDelta(), size);
   }
 
   if (ShouldProduceTraceOutput()) {

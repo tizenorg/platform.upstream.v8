@@ -117,31 +117,34 @@ TestArrayBufferSlice();
 
 // Typed arrays
 
-function TestTypedArray(proto, elementSize, typicalElement) {
+function TestTypedArray(constr, elementSize, typicalElement) {
+  assertSame(elementSize, constr.BYTES_PER_ELEMENT);
+
   var ab = new ArrayBuffer(256*elementSize);
 
-  var a0 = new proto(30);
+  var a0 = new constr(30);
+  assertTrue(ArrayBuffer.isView(a0));
   assertSame(elementSize, a0.BYTES_PER_ELEMENT);
   assertSame(30, a0.length);
   assertSame(30*elementSize, a0.byteLength);
   assertSame(0, a0.byteOffset);
   assertSame(30*elementSize, a0.buffer.byteLength);
 
-  var aLen0 = new proto(0);
+  var aLen0 = new constr(0);
   assertSame(elementSize, aLen0.BYTES_PER_ELEMENT);
   assertSame(0, aLen0.length);
   assertSame(0, aLen0.byteLength);
   assertSame(0, aLen0.byteOffset);
   assertSame(0, aLen0.buffer.byteLength);
 
-  var aOverBufferLen0 = new proto(ab, 128*elementSize, 0);
+  var aOverBufferLen0 = new constr(ab, 128*elementSize, 0);
   assertSame(ab, aOverBufferLen0.buffer);
   assertSame(elementSize, aOverBufferLen0.BYTES_PER_ELEMENT);
   assertSame(0, aOverBufferLen0.length);
   assertSame(0, aOverBufferLen0.byteLength);
   assertSame(128*elementSize, aOverBufferLen0.byteOffset);
 
-  var a1 = new proto(ab, 128*elementSize, 128);
+  var a1 = new constr(ab, 128*elementSize, 128);
   assertSame(ab, a1.buffer);
   assertSame(elementSize, a1.BYTES_PER_ELEMENT);
   assertSame(128, a1.length);
@@ -149,20 +152,20 @@ function TestTypedArray(proto, elementSize, typicalElement) {
   assertSame(128*elementSize, a1.byteOffset);
 
 
-  var a2 = new proto(ab, 64*elementSize, 128);
+  var a2 = new constr(ab, 64*elementSize, 128);
   assertSame(ab, a2.buffer);
   assertSame(elementSize, a2.BYTES_PER_ELEMENT);
   assertSame(128, a2.length);
   assertSame(128*elementSize, a2.byteLength);
   assertSame(64*elementSize, a2.byteOffset);
 
-  var a3 = new proto(ab, 192*elementSize);
+  var a3 = new constr(ab, 192*elementSize);
   assertSame(ab, a3.buffer);
   assertSame(64, a3.length);
   assertSame(64*elementSize, a3.byteLength);
   assertSame(192*elementSize, a3.byteOffset);
 
-  var a4 = new proto(ab);
+  var a4 = new constr(ab);
   assertSame(ab, a4.buffer);
   assertSame(256, a4.length);
   assertSame(256*elementSize, a4.byteLength);
@@ -198,31 +201,30 @@ function TestTypedArray(proto, elementSize, typicalElement) {
     assertSame(typicalElement, a4[i]);
   }
 
-  var aAtTheEnd = new proto(ab, 256*elementSize);
+  var aAtTheEnd = new constr(ab, 256*elementSize);
   assertSame(elementSize, aAtTheEnd.BYTES_PER_ELEMENT);
   assertSame(0, aAtTheEnd.length);
   assertSame(0, aAtTheEnd.byteLength);
   assertSame(256*elementSize, aAtTheEnd.byteOffset);
 
-  assertThrows(function () { new proto(ab, 257*elementSize); }, RangeError);
+  assertThrows(function () { new constr(ab, 257*elementSize); }, RangeError);
   assertThrows(
-      function () { new proto(ab, 128*elementSize, 192); },
+      function () { new constr(ab, 128*elementSize, 192); },
       RangeError);
 
   if (elementSize !== 1) {
-    assertThrows(function() { new proto(ab, 128*elementSize - 1, 10); },
+    assertThrows(function() { new constr(ab, 128*elementSize - 1, 10); },
                  RangeError);
     var unalignedArrayBuffer = new ArrayBuffer(10*elementSize + 1);
-    var goodArray = new proto(unalignedArrayBuffer, 0, 10);
+    var goodArray = new constr(unalignedArrayBuffer, 0, 10);
     assertSame(10, goodArray.length);
     assertSame(10*elementSize, goodArray.byteLength);
-    assertThrows(function() { new proto(unalignedArrayBuffer)}, RangeError);
-    assertThrows(function() { new proto(unalignedArrayBuffer, 5*elementSize)},
+    assertThrows(function() { new constr(unalignedArrayBuffer)}, RangeError);
+    assertThrows(function() { new constr(unalignedArrayBuffer, 5*elementSize)},
                  RangeError);
-    assertThrows(function() { new proto() }, TypeError);
   }
 
-  var aFromString = new proto("30");
+  var aFromString = new constr("30");
   assertSame(elementSize, aFromString.BYTES_PER_ELEMENT);
   assertSame(30, aFromString.length);
   assertSame(30*elementSize, aFromString.byteLength);
@@ -233,7 +235,7 @@ function TestTypedArray(proto, elementSize, typicalElement) {
   for (i = 0; i < 30; i++) {
     jsArray.push(typicalElement);
   }
-  var aFromArray = new proto(jsArray);
+  var aFromArray = new constr(jsArray);
   assertSame(elementSize, aFromArray.BYTES_PER_ELEMENT);
   assertSame(30, aFromArray.length);
   assertSame(30*elementSize, aFromArray.byteLength);
@@ -244,12 +246,18 @@ function TestTypedArray(proto, elementSize, typicalElement) {
   }
 
   var abLen0 = new ArrayBuffer(0);
-  var aOverAbLen0 = new proto(abLen0);
+  var aOverAbLen0 = new constr(abLen0);
   assertSame(abLen0, aOverAbLen0.buffer);
   assertSame(elementSize, aOverAbLen0.BYTES_PER_ELEMENT);
   assertSame(0, aOverAbLen0.length);
   assertSame(0, aOverAbLen0.byteLength);
   assertSame(0, aOverAbLen0.byteOffset);
+
+  var aNoParam = new constr();
+  assertSame(elementSize, aNoParam.BYTES_PER_ELEMENT);
+  assertSame(0, aNoParam.length);
+  assertSame(0, aNoParam.byteLength);
+  assertSame(0, aNoParam.byteOffset);
 }
 
 TestTypedArray(Uint8Array, 1, 0xFF);
@@ -302,6 +310,11 @@ function TestSubArray(constructor, item) {
 
   SubarrayTestCase(constructor, item, 10,90,        100, 90);
   SubarrayTestCase(constructor, item, 10,90,        100, -10);
+
+  var method = constructor.prototype.subarray;
+  method.call(new constructor(100), 0, 100);
+  var o = {};
+  assertThrows(function() { method.call(o, 0, 100); }, TypeError);
 }
 
 TestSubArray(Uint8Array, 0xFF);
@@ -448,10 +461,18 @@ function TestTypedArraySet() {
 
   // Invalid source
   var a = new Uint16Array(50);
-  assertThrows(function() { a.set(0) }, TypeError);
-  assertThrows(function() { a.set({}) }, TypeError);
+  var expected = [];
+  for (i = 0; i < 50; i++) {
+    a[i] = i;
+    expected.push(i);
+  }
+  a.set({});
+  assertArrayPrefix(expected, a);
   assertThrows(function() { a.set.call({}) }, TypeError);
   assertThrows(function() { a.set.call([]) }, TypeError);
+
+  assertThrows(function() { a.set(0); }, TypeError);
+  assertThrows(function() { a.set(0, 1); }, TypeError);
 }
 
 TestTypedArraySet();
@@ -461,6 +482,7 @@ function TestDataViewConstructor() {
   var ab = new ArrayBuffer(256);
 
   var d1 = new DataView(ab, 1, 255);
+  assertTrue(ArrayBuffer.isView(d1));
   assertSame(ab, d1.buffer);
   assertSame(1, d1.byteOffset);
   assertSame(255, d1.byteLength);

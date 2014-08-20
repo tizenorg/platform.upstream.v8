@@ -25,9 +25,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "global-handles.h"
+#include "src/global-handles.h"
 
-#include "cctest.h"
+#include "test/cctest/cctest.h"
 
 using namespace v8::internal;
 using v8::UniqueId;
@@ -56,7 +56,7 @@ class TestRetainedObjectInfo : public v8::RetainedObjectInfo {
   bool has_been_disposed() { return has_been_disposed_; }
 
   virtual void Dispose() {
-    ASSERT(!has_been_disposed_);
+    DCHECK(!has_been_disposed_);
     has_been_disposed_ = true;
   }
 
@@ -86,19 +86,19 @@ class TestObjectVisitor : public ObjectVisitor {
 
 TEST(IterateObjectGroupsOldApi) {
   CcTest::InitializeVM();
-  GlobalHandles* global_handles = Isolate::Current()->global_handles();
-
+  Isolate* isolate = CcTest::i_isolate();
+  GlobalHandles* global_handles = isolate->global_handles();
   v8::HandleScope handle_scope(CcTest::isolate());
 
   Handle<Object> g1s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g1s2 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
   Handle<Object> g2s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g2s2 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
   TestRetainedObjectInfo info1;
   TestRetainedObjectInfo info2;
@@ -121,16 +121,16 @@ TEST(IterateObjectGroupsOldApi) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 4);
-    ASSERT(can_skip_called_objects.Contains(*g1s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g1s2.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s2.location()));
+    DCHECK(can_skip_called_objects.length() == 4);
+    DCHECK(can_skip_called_objects.Contains(*g1s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g1s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s2.location()));
 
     // Nothing was visited.
-    ASSERT(visitor.visited.length() == 0);
-    ASSERT(!info1.has_been_disposed());
-    ASSERT(!info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 0);
+    DCHECK(!info1.has_been_disposed());
+    DCHECK(!info2.has_been_disposed());
   }
 
   // Iterate again, now only skip the second object group.
@@ -145,18 +145,18 @@ TEST(IterateObjectGroupsOldApi) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 3 ||
+    DCHECK(can_skip_called_objects.length() == 3 ||
            can_skip_called_objects.length() == 4);
-    ASSERT(can_skip_called_objects.Contains(*g1s2.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g1s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s2.location()));
 
     // The first group was visited.
-    ASSERT(visitor.visited.length() == 2);
-    ASSERT(visitor.visited.Contains(*g1s1.location()));
-    ASSERT(visitor.visited.Contains(*g1s2.location()));
-    ASSERT(info1.has_been_disposed());
-    ASSERT(!info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 2);
+    DCHECK(visitor.visited.Contains(*g1s1.location()));
+    DCHECK(visitor.visited.Contains(*g1s2.location()));
+    DCHECK(info1.has_been_disposed());
+    DCHECK(!info2.has_been_disposed());
   }
 
   // Iterate again, don't skip anything.
@@ -166,34 +166,35 @@ TEST(IterateObjectGroupsOldApi) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 1);
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()) ||
+    DCHECK(can_skip_called_objects.length() == 1);
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()) ||
            can_skip_called_objects.Contains(*g2s2.location()));
 
     // The second group was visited.
-    ASSERT(visitor.visited.length() == 2);
-    ASSERT(visitor.visited.Contains(*g2s1.location()));
-    ASSERT(visitor.visited.Contains(*g2s2.location()));
-    ASSERT(info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 2);
+    DCHECK(visitor.visited.Contains(*g2s1.location()));
+    DCHECK(visitor.visited.Contains(*g2s2.location()));
+    DCHECK(info2.has_been_disposed());
   }
 }
 
 
 TEST(IterateObjectGroups) {
   CcTest::InitializeVM();
-  GlobalHandles* global_handles = Isolate::Current()->global_handles();
+  Isolate* isolate = CcTest::i_isolate();
+  GlobalHandles* global_handles = isolate->global_handles();
 
   v8::HandleScope handle_scope(CcTest::isolate());
 
   Handle<Object> g1s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g1s2 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
   Handle<Object> g2s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g2s2 =
-    global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+    global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
   TestRetainedObjectInfo info1;
   TestRetainedObjectInfo info2;
@@ -215,16 +216,16 @@ TEST(IterateObjectGroups) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 4);
-    ASSERT(can_skip_called_objects.Contains(*g1s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g1s2.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s2.location()));
+    DCHECK(can_skip_called_objects.length() == 4);
+    DCHECK(can_skip_called_objects.Contains(*g1s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g1s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s2.location()));
 
     // Nothing was visited.
-    ASSERT(visitor.visited.length() == 0);
-    ASSERT(!info1.has_been_disposed());
-    ASSERT(!info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 0);
+    DCHECK(!info1.has_been_disposed());
+    DCHECK(!info2.has_been_disposed());
   }
 
   // Iterate again, now only skip the second object group.
@@ -239,18 +240,18 @@ TEST(IterateObjectGroups) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 3 ||
+    DCHECK(can_skip_called_objects.length() == 3 ||
            can_skip_called_objects.length() == 4);
-    ASSERT(can_skip_called_objects.Contains(*g1s2.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()));
-    ASSERT(can_skip_called_objects.Contains(*g2s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g1s2.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()));
+    DCHECK(can_skip_called_objects.Contains(*g2s2.location()));
 
     // The first group was visited.
-    ASSERT(visitor.visited.length() == 2);
-    ASSERT(visitor.visited.Contains(*g1s1.location()));
-    ASSERT(visitor.visited.Contains(*g1s2.location()));
-    ASSERT(info1.has_been_disposed());
-    ASSERT(!info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 2);
+    DCHECK(visitor.visited.Contains(*g1s1.location()));
+    DCHECK(visitor.visited.Contains(*g1s2.location()));
+    DCHECK(info1.has_been_disposed());
+    DCHECK(!info2.has_been_disposed());
   }
 
   // Iterate again, don't skip anything.
@@ -260,39 +261,40 @@ TEST(IterateObjectGroups) {
     global_handles->IterateObjectGroups(&visitor, &CanSkipCallback);
 
     // CanSkipCallback was called for all objects.
-    ASSERT(can_skip_called_objects.length() == 1);
-    ASSERT(can_skip_called_objects.Contains(*g2s1.location()) ||
+    DCHECK(can_skip_called_objects.length() == 1);
+    DCHECK(can_skip_called_objects.Contains(*g2s1.location()) ||
            can_skip_called_objects.Contains(*g2s2.location()));
 
     // The second group was visited.
-    ASSERT(visitor.visited.length() == 2);
-    ASSERT(visitor.visited.Contains(*g2s1.location()));
-    ASSERT(visitor.visited.Contains(*g2s2.location()));
-    ASSERT(info2.has_been_disposed());
+    DCHECK(visitor.visited.length() == 2);
+    DCHECK(visitor.visited.Contains(*g2s1.location()));
+    DCHECK(visitor.visited.Contains(*g2s2.location()));
+    DCHECK(info2.has_been_disposed());
   }
 }
 
 
 TEST(ImplicitReferences) {
   CcTest::InitializeVM();
-  GlobalHandles* global_handles = Isolate::Current()->global_handles();
+  Isolate* isolate = CcTest::i_isolate();
+  GlobalHandles* global_handles = isolate->global_handles();
 
   v8::HandleScope handle_scope(CcTest::isolate());
 
   Handle<Object> g1s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g1c1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g1c2 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
 
   Handle<Object> g2s1 =
-      global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+      global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g2s2 =
-    global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+    global_handles->Create(*isolate->factory()->NewFixedArray(1));
   Handle<Object> g2c1 =
-    global_handles->Create(HEAP->AllocateFixedArray(1)->ToObjectChecked());
+    global_handles->Create(*isolate->factory()->NewFixedArray(1));
 
   global_handles->SetObjectGroupId(g1s1.location(), UniqueId(1));
   global_handles->SetObjectGroupId(g2s1.location(), UniqueId(2));
@@ -304,14 +306,77 @@ TEST(ImplicitReferences) {
   List<ImplicitRefGroup*>* implicit_refs =
       global_handles->implicit_ref_groups();
   USE(implicit_refs);
-  ASSERT(implicit_refs->length() == 2);
-  ASSERT(implicit_refs->at(0)->parent ==
+  DCHECK(implicit_refs->length() == 2);
+  DCHECK(implicit_refs->at(0)->parent ==
          reinterpret_cast<HeapObject**>(g1s1.location()));
-  ASSERT(implicit_refs->at(0)->length == 2);
-  ASSERT(implicit_refs->at(0)->children[0] == g1c1.location());
-  ASSERT(implicit_refs->at(0)->children[1] == g1c2.location());
-  ASSERT(implicit_refs->at(1)->parent ==
+  DCHECK(implicit_refs->at(0)->length == 2);
+  DCHECK(implicit_refs->at(0)->children[0] == g1c1.location());
+  DCHECK(implicit_refs->at(0)->children[1] == g1c2.location());
+  DCHECK(implicit_refs->at(1)->parent ==
          reinterpret_cast<HeapObject**>(g2s1.location()));
-  ASSERT(implicit_refs->at(1)->length == 1);
-  ASSERT(implicit_refs->at(1)->children[0] == g2c1.location());
+  DCHECK(implicit_refs->at(1)->length == 1);
+  DCHECK(implicit_refs->at(1)->children[0] == g2c1.location());
+  global_handles->RemoveObjectGroups();
+  global_handles->RemoveImplicitRefGroups();
+}
+
+
+TEST(EternalHandles) {
+  CcTest::InitializeVM();
+  Isolate* isolate = CcTest::i_isolate();
+  v8::Isolate* v8_isolate = reinterpret_cast<v8::Isolate*>(isolate);
+  EternalHandles* eternal_handles = isolate->eternal_handles();
+
+  // Create a number of handles that will not be on a block boundary
+  const int kArrayLength = 2048-1;
+  int indices[kArrayLength];
+  v8::Eternal<v8::Value> eternals[kArrayLength];
+
+  CHECK_EQ(0, eternal_handles->NumberOfHandles());
+  for (int i = 0; i < kArrayLength; i++) {
+    indices[i] = -1;
+    HandleScope scope(isolate);
+    v8::Local<v8::Object> object = v8::Object::New(v8_isolate);
+    object->Set(i, v8::Integer::New(v8_isolate, i));
+    // Create with internal api
+    eternal_handles->Create(
+        isolate, *v8::Utils::OpenHandle(*object), &indices[i]);
+    // Create with external api
+    CHECK(eternals[i].IsEmpty());
+    eternals[i].Set(v8_isolate, object);
+    CHECK(!eternals[i].IsEmpty());
+  }
+
+  isolate->heap()->CollectAllAvailableGarbage();
+
+  for (int i = 0; i < kArrayLength; i++) {
+    for (int j = 0; j < 2; j++) {
+      HandleScope scope(isolate);
+      v8::Local<v8::Value> local;
+      if (j == 0) {
+        // Test internal api
+        local = v8::Utils::ToLocal(eternal_handles->Get(indices[i]));
+      } else {
+        // Test external api
+        local = eternals[i].Get(v8_isolate);
+      }
+      v8::Local<v8::Object> object = v8::Handle<v8::Object>::Cast(local);
+      v8::Local<v8::Value> value = object->Get(i);
+      CHECK(value->IsInt32());
+      CHECK_EQ(i, value->Int32Value());
+    }
+  }
+
+  CHECK_EQ(2*kArrayLength, eternal_handles->NumberOfHandles());
+
+  // Create an eternal via the constructor
+  {
+    HandleScope scope(isolate);
+    v8::Local<v8::Object> object = v8::Object::New(v8_isolate);
+    v8::Eternal<v8::Object> eternal(v8_isolate, object);
+    CHECK(!eternal.IsEmpty());
+    CHECK(object == eternal.Get(v8_isolate));
+  }
+
+  CHECK_EQ(2*kArrayLength + 1, eternal_handles->NumberOfHandles());
 }

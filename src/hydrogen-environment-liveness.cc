@@ -1,32 +1,9 @@
 // Copyright 2013 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 
-#include "hydrogen-environment-liveness.h"
+#include "src/hydrogen-environment-liveness.h"
 
 
 namespace v8 {
@@ -45,7 +22,7 @@ HEnvironmentLivenessAnalysisPhase::HEnvironmentLivenessAnalysisPhase(
       collect_markers_(true),
       last_simulate_(NULL),
       went_live_since_last_simulate_(maximum_environment_size_, zone()) {
-  ASSERT(maximum_environment_size_ > 0);
+  DCHECK(maximum_environment_size_ > 0);
   for (int i = 0; i < block_count_; ++i) {
     live_at_block_start_.Add(
         new(zone()) BitVector(maximum_environment_size_, zone()), zone());
@@ -84,8 +61,8 @@ void HEnvironmentLivenessAnalysisPhase::ZapEnvironmentSlotsInSuccessors(
       }
       HSimulate* simulate = first_simulate_.at(successor_id);
       if (simulate == NULL) continue;
-      ASSERT(simulate->closure().is_identical_to(
-                 block->last_environment()->closure()));
+      DCHECK(VerifyClosures(simulate->closure(),
+          block->last_environment()->closure()));
       ZapEnvironmentSlot(i, simulate);
     }
   }
@@ -97,7 +74,7 @@ void HEnvironmentLivenessAnalysisPhase::ZapEnvironmentSlotsForInstruction(
   if (!marker->CheckFlag(HValue::kEndsLiveRange)) return;
   HSimulate* simulate = marker->next_simulate();
   if (simulate != NULL) {
-    ASSERT(simulate->closure().is_identical_to(marker->closure()));
+    DCHECK(VerifyClosures(simulate->closure(), marker->closure()));
     ZapEnvironmentSlot(marker->index(), simulate);
   }
 }
@@ -132,7 +109,7 @@ void HEnvironmentLivenessAnalysisPhase::UpdateLivenessAtInstruction(
       if (marker->kind() == HEnvironmentMarker::LOOKUP) {
         live->Add(index);
       } else {
-        ASSERT(marker->kind() == HEnvironmentMarker::BIND);
+        DCHECK(marker->kind() == HEnvironmentMarker::BIND);
         live->Remove(index);
         went_live_since_last_simulate_.Add(index);
       }
@@ -147,10 +124,10 @@ void HEnvironmentLivenessAnalysisPhase::UpdateLivenessAtInstruction(
       live->Clear();
       last_simulate_ = NULL;
 
-      // The following ASSERTs guard the assumption used in case
+      // The following DCHECKs guard the assumption used in case
       // kEnterInlined below:
-      ASSERT(instr->next()->IsSimulate());
-      ASSERT(instr->next()->next()->IsGoto());
+      DCHECK(instr->next()->IsSimulate());
+      DCHECK(instr->next()->next()->IsGoto());
 
       break;
     case HValue::kEnterInlined: {
@@ -158,27 +135,14 @@ void HEnvironmentLivenessAnalysisPhase::UpdateLivenessAtInstruction(
       // target block. Here we make use of the fact that the end of an
       // inline sequence always looks like this: HLeaveInlined, HSimulate,
       // HGoto (to return_target block), with no environment lookups in
-      // between (see ASSERTs above).
+      // between (see DCHECKs above).
       HEnterInlined* enter = HEnterInlined::cast(instr);
       live->Clear();
       for (int i = 0; i < enter->return_targets()->length(); ++i) {
         int return_id = enter->return_targets()->at(i)->block_id();
-        // When an AbnormalExit is involved, it can happen that the return
-        // target block doesn't actually exist.
-        if (return_id < live_at_block_start_.length()) {
-          live->Union(*live_at_block_start_[return_id]);
-        }
+        live->Union(*live_at_block_start_[return_id]);
       }
       last_simulate_ = NULL;
-      break;
-    }
-    case HValue::kDeoptimize: {
-      // Keep all environment slots alive.
-      HDeoptimize* deopt = HDeoptimize::cast(instr);
-      for (int i = deopt->first_local_index();
-           i < deopt->first_expression_index(); ++i) {
-        live->Add(i);
-      }
       break;
     }
     case HValue::kSimulate:
@@ -192,7 +156,7 @@ void HEnvironmentLivenessAnalysisPhase::UpdateLivenessAtInstruction(
 
 
 void HEnvironmentLivenessAnalysisPhase::Run() {
-  ASSERT(maximum_environment_size_ > 0);
+  DCHECK(maximum_environment_size_ > 0);
 
   // Main iteration. Compute liveness of environment slots, and store it
   // for each block until it doesn't change any more. For efficiency, visit
@@ -214,7 +178,7 @@ void HEnvironmentLivenessAnalysisPhase::Run() {
       HBasicBlock* block = graph()->blocks()->at(block_id);
       UpdateLivenessAtBlockEnd(block, &live);
 
-      for (HInstruction* instr = block->last(); instr != NULL;
+      for (HInstruction* instr = block->end(); instr != NULL;
            instr = instr->previous()) {
         UpdateLivenessAtInstruction(instr, &live);
       }
@@ -253,5 +217,15 @@ void HEnvironmentLivenessAnalysisPhase::Run() {
     markers_[i]->DeleteAndReplaceWith(NULL);
   }
 }
+
+
+#ifdef DEBUG
+bool HEnvironmentLivenessAnalysisPhase::VerifyClosures(
+    Handle<JSFunction> a, Handle<JSFunction> b) {
+  Heap::RelocationLock for_heap_access(isolate()->heap());
+  AllowHandleDereference for_verification;
+  return a.is_identical_to(b);
+}
+#endif
 
 } }  // namespace v8::internal

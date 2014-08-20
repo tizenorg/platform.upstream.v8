@@ -1,38 +1,15 @@
 // Copyright 2012 the V8 project authors. All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-//       notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-//       copyright notice, this list of conditions and the following
-//       disclaimer in the documentation and/or other materials provided
-//       with the distribution.
-//     * Neither the name of Google Inc. nor the names of its
-//       contributors may be used to endorse or promote products derived
-//       from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef V8_LITHIUM_ALLOCATOR_H_
 #define V8_LITHIUM_ALLOCATOR_H_
 
-#include "v8.h"
+#include "src/v8.h"
 
-#include "allocation.h"
-#include "lithium.h"
-#include "zone.h"
+#include "src/allocation.h"
+#include "src/lithium.h"
+#include "src/zone.h"
 
 namespace v8 {
 namespace internal {
@@ -40,23 +17,18 @@ namespace internal {
 // Forward declarations.
 class HBasicBlock;
 class HGraph;
-class HInstruction;
 class HPhi;
 class HTracer;
 class HValue;
 class BitVector;
 class StringStream;
 
-class LArgument;
 class LPlatformChunk;
 class LOperand;
 class LUnallocated;
-class LConstantOperand;
 class LGap;
 class LParallelMove;
 class LPointerMap;
-class LStackSlot;
-class LRegister;
 
 
 // This class represents a single point of a LOperand's lifetime.
@@ -79,7 +51,7 @@ class LifetimePosition {
   // Returns the index of the instruction to which this lifetime position
   // corresponds.
   int InstructionIndex() const {
-    ASSERT(IsValid());
+    DCHECK(IsValid());
     return value_ / kStep;
   }
 
@@ -92,28 +64,28 @@ class LifetimePosition {
   // Returns the lifetime position for the start of the instruction which
   // corresponds to this lifetime position.
   LifetimePosition InstructionStart() const {
-    ASSERT(IsValid());
+    DCHECK(IsValid());
     return LifetimePosition(value_ & ~(kStep - 1));
   }
 
   // Returns the lifetime position for the end of the instruction which
   // corresponds to this lifetime position.
   LifetimePosition InstructionEnd() const {
-    ASSERT(IsValid());
+    DCHECK(IsValid());
     return LifetimePosition(InstructionStart().Value() + kStep/2);
   }
 
   // Returns the lifetime position for the beginning of the next instruction.
   LifetimePosition NextInstruction() const {
-    ASSERT(IsValid());
+    DCHECK(IsValid());
     return LifetimePosition(InstructionStart().Value() + kStep);
   }
 
   // Returns the lifetime position for the beginning of the previous
   // instruction.
   LifetimePosition PrevInstruction() const {
-    ASSERT(IsValid());
-    ASSERT(value_ > 1);
+    DCHECK(IsValid());
+    DCHECK(value_ > 1);
     return LifetimePosition(InstructionStart().Value() - kStep);
   }
 
@@ -145,69 +117,12 @@ class LifetimePosition {
 };
 
 
-enum RegisterKind {
-  GENERAL_REGISTERS,
-  DOUBLE_REGISTERS
-};
-
-
-// A register-allocator view of a Lithium instruction. It contains the id of
-// the output operand and a list of input operand uses.
-
-class LInstruction;
-class LEnvironment;
-
-// Iterator for non-null temp operands.
-class TempIterator BASE_EMBEDDED {
- public:
-  inline explicit TempIterator(LInstruction* instr);
-  inline bool Done();
-  inline LOperand* Current();
-  inline void Advance();
-
- private:
-  inline void SkipUninteresting();
-  LInstruction* instr_;
-  int limit_;
-  int current_;
-};
-
-
-// Iterator for non-constant input operands.
-class InputIterator BASE_EMBEDDED {
- public:
-  inline explicit InputIterator(LInstruction* instr);
-  inline bool Done();
-  inline LOperand* Current();
-  inline void Advance();
-
- private:
-  inline void SkipUninteresting();
-  LInstruction* instr_;
-  int limit_;
-  int current_;
-};
-
-
-class UseIterator BASE_EMBEDDED {
- public:
-  inline explicit UseIterator(LInstruction* instr);
-  inline bool Done();
-  inline LOperand* Current();
-  inline void Advance();
-
- private:
-  InputIterator input_iterator_;
-  DeepIterator env_iterator_;
-};
-
-
 // Representation of the non-empty interval [start,end[.
 class UseInterval: public ZoneObject {
  public:
   UseInterval(LifetimePosition start, LifetimePosition end)
       : start_(start), end_(end), next_(NULL) {
-    ASSERT(start.Value() < end.Value());
+    DCHECK(start.Value() < end.Value());
   }
 
   LifetimePosition start() const { return start_; }
@@ -290,9 +205,7 @@ class LiveRange: public ZoneObject {
   LOperand* CreateAssignedOperand(Zone* zone);
   int assigned_register() const { return assigned_register_; }
   int spill_start_index() const { return spill_start_index_; }
-  void set_assigned_register(int reg,
-                             RegisterKind register_kind,
-                             Zone* zone);
+  void set_assigned_register(int reg, Zone* zone);
   void MakeSpilled(Zone* zone);
 
   // Returns use position in this live range that follows both start
@@ -323,14 +236,14 @@ class LiveRange: public ZoneObject {
   // live range to the result live range.
   void SplitAt(LifetimePosition position, LiveRange* result, Zone* zone);
 
-  bool IsDouble() const { return is_double_; }
+  RegisterKind Kind() const { return kind_; }
   bool HasRegisterAssigned() const {
     return assigned_register_ != kInvalidAssignment;
   }
   bool IsSpilled() const { return spilled_; }
 
   LOperand* current_hint_operand() const {
-    ASSERT(current_hint_operand_ == FirstHint());
+    DCHECK(current_hint_operand_ == FirstHint());
     return current_hint_operand_;
   }
   LOperand* FirstHint() const {
@@ -341,12 +254,12 @@ class LiveRange: public ZoneObject {
   }
 
   LifetimePosition Start() const {
-    ASSERT(!IsEmpty());
+    DCHECK(!IsEmpty());
     return first_interval()->start();
   }
 
   LifetimePosition End() const {
-    ASSERT(!IsEmpty());
+    DCHECK(!IsEmpty());
     return last_interval_->end();
   }
 
@@ -392,7 +305,7 @@ class LiveRange: public ZoneObject {
 
   int id_;
   bool spilled_;
-  bool is_double_;
+  RegisterKind kind_;
   int assigned_register_;
   UseInterval* last_interval_;
   UseInterval* first_interval_;
@@ -406,6 +319,8 @@ class LiveRange: public ZoneObject {
   LOperand* current_hint_operand_;
   LOperand* spill_operand_;
   int spill_start_index_;
+
+  friend class LAllocator;  // Assigns to kind_.
 };
 
 
@@ -449,7 +364,7 @@ class LAllocator BASE_EMBEDDED {
 
   void MarkAsOsrEntry() {
     // There can be only one.
-    ASSERT(!has_osr_entry_);
+    DCHECK(!has_osr_entry_);
     // Simply set a flag to find and process instruction later.
     has_osr_entry_ = true;
   }
@@ -568,9 +483,7 @@ class LAllocator BASE_EMBEDDED {
                           HBasicBlock* block,
                           HBasicBlock* pred);
 
-  inline void SetLiveRangeAssignedRegister(LiveRange* range,
-                                           int reg,
-                                           RegisterKind register_kind);
+  inline void SetLiveRangeAssignedRegister(LiveRange* range, int reg);
 
   // Return parallel move that should be used to connect ranges split at the
   // given position.
