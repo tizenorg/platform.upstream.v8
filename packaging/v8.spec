@@ -66,6 +66,10 @@ Special Private Development headers for v8.
 %setup -q
 cp %{SOURCE1001} .
 
+%ifarch aarch64
+sed -i -e '/v8_use_snapshot/s/true/false/;q' build/features.gypi
+%endif
+
 %build
 
 env=CCFLAGS:"-fPIC"
