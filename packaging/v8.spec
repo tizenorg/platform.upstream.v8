@@ -8,6 +8,7 @@ Url:            http://code.google.com/p/v8
 Source0:        %{name}-%{version}.tar.bz2
 Source1001: 	v8.manifest
 BuildRequires:  gcc-c++
+BuildRequires:  libicu-devel >= 4.0
 BuildRequires:  lzma
 BuildRequires:  python-devel
 BuildRequires:  readline-devel
