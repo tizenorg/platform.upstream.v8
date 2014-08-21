@@ -72,9 +72,8 @@ sed -i -e '/v8_use_snapshot/s/true/false/' build/features.gypi
 %endif
 
 %build
-
 env=CCFLAGS:"-fPIC"
-make %{target}.release -j3 library=shared snapshots=on soname_version=%{somajor}
+make %{target}.release -j3 library=shared snapshots=on soname_version=%{somajor} use_system_icu=on
 
 %install
 mkdir -p %{buildroot}%{_includedir}/v8/x64
