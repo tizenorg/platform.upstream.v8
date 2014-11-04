@@ -58,7 +58,8 @@ class InterpreterState {
     return Value(op->kind(), op->index());
   }
 
-  friend OStream& operator<<(OStream& os, const InterpreterState& is) {
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const InterpreterState& is) {
     for (OperandMap::const_iterator it = is.values_.begin();
          it != is.values_.end(); ++it) {
       if (it != is.values_.begin()) os << " ";
@@ -77,14 +78,14 @@ class InterpreterState {
 class MoveInterpreter : public GapResolver::Assembler {
  public:
   virtual void AssembleMove(InstructionOperand* source,
-                            InstructionOperand* destination) V8_OVERRIDE {
+                            InstructionOperand* destination) OVERRIDE {
     InterpreterState::Moves moves;
     moves.push_back(MoveOperands(source, destination));
     state_.ExecuteInParallel(moves);
   }
 
   virtual void AssembleSwap(InstructionOperand* source,
-                            InstructionOperand* destination) V8_OVERRIDE {
+                            InstructionOperand* destination) OVERRIDE {
     InterpreterState::Moves moves;
     moves.push_back(MoveOperands(source, destination));
     moves.push_back(MoveOperands(destination, source));

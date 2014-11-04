@@ -16,13 +16,15 @@ namespace compiler {
     before = true;         \
   }
 
-OStream& operator<<(OStream& os, const MachineType& type) {
+
+std::ostream& operator<<(std::ostream& os, const MachineType& type) {
   bool before = false;
   PRINT(kRepBit);
   PRINT(kRepWord8);
   PRINT(kRepWord16);
   PRINT(kRepWord32);
   PRINT(kRepWord64);
+  PRINT(kRepFloat32);
   PRINT(kRepFloat64);
   PRINT(kRepTagged);
 
@@ -35,6 +37,10 @@ OStream& operator<<(OStream& os, const MachineType& type) {
   PRINT(kTypeAny);
   return os;
 }
-}
-}
-}  // namespace v8::internal::compiler
+
+
+#undef PRINT
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8

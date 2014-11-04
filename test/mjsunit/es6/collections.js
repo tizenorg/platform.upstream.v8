@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --expose-gc --allow-natives-syntax
+// Flags: --expose-gc --allow-natives-syntax --harmony-tostring
 
 
 function assertSize(expected, collection) {
@@ -117,7 +117,8 @@ function TestMapBehavior2(m) {
     TestMapping(m, i / 10, new Object);
     TestMapping(m, 'key-' + i, new Object);
   }
-  var keys = [ +0, -0, +Infinity, -Infinity, true, false, null, undefined ];
+  // -0 is handled in TestMinusZeroMap
+  var keys = [ 0, +Infinity, -Infinity, true, false, null, undefined ];
   for (var i = 0; i < keys.length; i++) {
     TestMapping(m, keys[i], new Object);
   }
@@ -299,7 +300,7 @@ assertEquals("WeakSet", WeakSet.name);
 function TestPrototype(C) {
   assertTrue(C.prototype instanceof Object);
   assertEquals({
-    value: {},
+    value: C.prototype,
     writable: false,
     enumerable: false,
     configurable: false
@@ -495,24 +496,26 @@ for (var i = 9; i >= 0; i--) {
 
 
 (function TestMinusZeroSet() {
-  var m = new Set();
-  m.add(0);
-  m.add(-0);
-  assertEquals(1, m.size);
-  assertTrue(m.has(0));
-  assertTrue(m.has(-0));
+  var s = new Set();
+  s.add(-0);
+  assertSame(0, s.values().next().value);
+  s.add(0);
+  assertEquals(1, s.size);
+  assertTrue(s.has(0));
+  assertTrue(s.has(-0));
 })();
 
 
 (function TestMinusZeroMap() {
   var m = new Map();
-  m.set(0, 'plus');
   m.set(-0, 'minus');
+  assertSame(0, m.keys().next().value);
+  m.set(0, 'plus');
   assertEquals(1, m.size);
   assertTrue(m.has(0));
   assertTrue(m.has(-0));
-  assertEquals('minus', m.get(0));
-  assertEquals('minus', m.get(-0));
+  assertEquals('plus', m.get(0));
+  assertEquals('plus', m.get(-0));
 })();
 
 
@@ -687,6 +690,33 @@ for (var i = 9; i >= 0; i--) {
   });
   assertEquals(4950, accumulated);
 })();
+
+
+(function TestSetForEachReceiverAsObject() {
+  var set = new Set(["1", "2"]);
+
+  // Create a new object in each function call when receiver is a
+  // primitive value. See ECMA-262, Annex C.
+  var a = [];
+  set.forEach(function() { a.push(this) }, "");
+  assertTrue(a[0] !== a[1]);
+
+  // Do not create a new object otherwise.
+  a = [];
+  set.forEach(function() { a.push(this); }, {});
+  assertEquals(a[0], a[1]);
+})();
+
+
+(function TestSetForEachReceiverAsObjectInStrictMode() {
+  var set = new Set(["1", "2"]);
+
+  // In strict mode primitive values should not be coerced to an object.
+  var a = [];
+  set.forEach(function() { 'use strict'; a.push(this); }, "");
+  assertTrue(a[0] === "" && a[0] === a[1]);
+})();
+
 
 (function TestMapForEachInvalidTypes() {
   assertThrows(function() {
@@ -992,6 +1022,36 @@ for (var i = 9; i >= 0; i--) {
   });
 
   assertArrayEquals([0, 1, 2, 3, 4], buffer);
+})();
+
+
+(function TestMapForEachReceiverAsObject() {
+  var map = new Map();
+  map.set("key1", "value1");
+  map.set("key2", "value2");
+
+  // Create a new object in each function call when receiver is a
+  // primitive value. See ECMA-262, Annex C.
+  var a = [];
+  map.forEach(function() { a.push(this) }, "");
+  assertTrue(a[0] !== a[1]);
+
+  // Do not create a new object otherwise.
+  a = [];
+  map.forEach(function() { a.push(this); }, {});
+  assertEquals(a[0], a[1]);
+})();
+
+
+(function TestMapForEachReceiverAsObjectInStrictMode() {
+  var map = new Map();
+  map.set("key1", "value1");
+  map.set("key2", "value2");
+
+  // In strict mode primitive values should not be coerced to an object.
+  var a = [];
+  map.forEach(function() { 'use strict'; a.push(this); }, "");
+  assertTrue(a[0] === "" && a[0] === a[1]);
 })();
 
 
@@ -1363,3 +1423,12 @@ function TestMapConstructorIterableValue(ctor) {
 }
 TestMapConstructorIterableValue(Map);
 TestMapConstructorIterableValue(WeakMap);
+
+function TestCollectionToString(C) {
+  assertEquals("[object " + C.name + "]",
+      Object.prototype.toString.call(new C()));
+}
+TestCollectionToString(Map);
+TestCollectionToString(Set);
+TestCollectionToString(WeakMap);
+TestCollectionToString(WeakSet);

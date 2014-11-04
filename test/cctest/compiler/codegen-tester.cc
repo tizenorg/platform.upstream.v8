@@ -4,6 +4,7 @@
 
 #include "src/v8.h"
 
+#include "src/compiler/generic-node-inl.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/compiler/codegen-tester.h"
 #include "test/cctest/compiler/value-helper.h"
@@ -14,7 +15,6 @@ using namespace v8::internal::compiler;
 TEST(CompareWrapper) {
   // Who tests the testers?
   // If CompareWrapper is broken, then test expectations will be broken.
-  RawMachineAssemblerTester<int32_t> m;
   CompareWrapper wWord32Equal(IrOpcode::kWord32Equal);
   CompareWrapper wInt32LessThan(IrOpcode::kInt32LessThan);
   CompareWrapper wInt32LessThanOrEqual(IrOpcode::kInt32LessThanOrEqual);
@@ -369,6 +369,8 @@ void Int32BinopInputShapeTester::RunRight(
 }
 
 
+#if V8_TURBOFAN_TARGET
+
 TEST(ParametersEqual) {
   RawMachineAssemblerTester<int32_t> m(kMachInt32, kMachInt32);
   Node* p1 = m.Parameter(1);
@@ -379,8 +381,6 @@ TEST(ParametersEqual) {
   CHECK_EQ(p1, m.Parameter(1));
 }
 
-
-#if V8_TURBOFAN_TARGET
 
 void RunSmiConstant(int32_t v) {
 // TODO(dcarney): on x64 Smis are generated with the SmiConstantRegister
@@ -477,10 +477,10 @@ TEST(RunHeapConstant) {
 
 
 TEST(RunHeapNumberConstant) {
-  RawMachineAssemblerTester<Object*> m;
-  Handle<Object> number = m.isolate()->factory()->NewHeapNumber(100.5);
+  RawMachineAssemblerTester<HeapObject*> m;
+  Handle<HeapObject> number = m.isolate()->factory()->NewHeapNumber(100.5);
   m.Return(m.HeapConstant(number));
-  Object* result = m.Call();
+  HeapObject* result = m.Call();
   CHECK_EQ(result, *number);
 }
 

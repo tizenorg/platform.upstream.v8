@@ -23,7 +23,7 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-// TODO(titzer): move MachineType selection for C types into machine-type.h
+// TODO(titzer): use c-signature.h instead of ReturnValueTraits
 template <typename R>
 struct ReturnValueTraits {
   static R Cast(uintptr_t r) { return reinterpret_cast<R>(r); }
@@ -86,9 +86,21 @@ struct ReturnValueTraits<int16_t> {
 };
 
 template <>
+struct ReturnValueTraits<uint16_t> {
+  static uint16_t Cast(uintptr_t r) { return static_cast<uint16_t>(r); }
+  static MachineType Representation() { return kMachUint16; }
+};
+
+template <>
 struct ReturnValueTraits<int8_t> {
   static int8_t Cast(uintptr_t r) { return static_cast<int8_t>(r); }
   static MachineType Representation() { return kMachInt8; }
+};
+
+template <>
+struct ReturnValueTraits<uint8_t> {
+  static uint8_t Cast(uintptr_t r) { return static_cast<uint8_t>(r); }
+  static MachineType Representation() { return kMachUint8; }
 };
 
 template <>
@@ -118,34 +130,40 @@ struct ParameterTraits<T*> {
 
 class CallHelper {
  public:
-  explicit CallHelper(Isolate* isolate) : isolate_(isolate) { USE(isolate_); }
+  explicit CallHelper(Isolate* isolate, MachineSignature* machine_sig)
+      : machine_sig_(machine_sig), isolate_(isolate) {
+    USE(isolate_);
+  }
   virtual ~CallHelper() {}
 
-  static MachineCallDescriptorBuilder* ToCallDescriptorBuilder(
+  static MachineSignature* MakeMachineSignature(
       Zone* zone, MachineType return_type, MachineType p0 = kMachNone,
       MachineType p1 = kMachNone, MachineType p2 = kMachNone,
       MachineType p3 = kMachNone, MachineType p4 = kMachNone) {
-    const int kSize = 5;
-    MachineType* params = zone->NewArray<MachineType>(kSize);
-    params[0] = p0;
-    params[1] = p1;
-    params[2] = p2;
-    params[3] = p3;
-    params[4] = p4;
-    int parameter_count = 0;
-    for (int i = 0; i < kSize; ++i) {
-      if (params[i] == kMachNone) {
-        break;
-      }
-      parameter_count++;
+    // Count the number of parameters.
+    size_t param_count = 5;
+    MachineType types[] = {p0, p1, p2, p3, p4};
+    while (param_count > 0 && types[param_count - 1] == kMachNone)
+      param_count--;
+    size_t return_count = return_type == kMachNone ? 0 : 1;
+
+    // Build the machine signature.
+    MachineSignature::Builder builder(zone, return_count, param_count);
+    if (return_count > 0) builder.AddReturn(return_type);
+    for (size_t i = 0; i < param_count; i++) {
+      builder.AddParam(types[i]);
     }
-    return new (zone)
-        MachineCallDescriptorBuilder(return_type, parameter_count, params);
+    return builder.Build();
   }
 
  protected:
-  virtual void VerifyParameters(int parameter_count,
-                                MachineType* parameters) = 0;
+  MachineSignature* machine_sig_;
+  void VerifyParameters(size_t parameter_count, MachineType* parameter_types) {
+    CHECK(machine_sig_->parameter_count() == parameter_count);
+    for (size_t i = 0; i < parameter_count; i++) {
+      CHECK_EQ(machine_sig_->GetParam(i), parameter_types[i]);
+    }
+  }
   virtual byte* Generate() = 0;
 
  private:
@@ -189,7 +207,7 @@ class CallHelper {
         Simulator::CallArgument::End()};
     return ReturnValueTraits<R>::Cast(CallSimulator(FUNCTION_ADDR(f), args));
   }
-#elif USE_SIMULATOR && V8_TARGET_ARCH_ARM
+#elif USE_SIMULATOR && (V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS)
   uintptr_t CallSimulator(byte* f, int32_t p1 = 0, int32_t p2 = 0,
                           int32_t p3 = 0, int32_t p4 = 0) {
     Simulator* simulator = Simulator::current(isolate_);
@@ -268,14 +286,14 @@ class CallHelper {
   template <typename P1>
   void VerifyParameters1() {
     MachineType parameters[] = {ReturnValueTraits<P1>::Representation()};
-    VerifyParameters(ARRAY_SIZE(parameters), parameters);
+    VerifyParameters(arraysize(parameters), parameters);
   }
 
   template <typename P1, typename P2>
   void VerifyParameters2() {
     MachineType parameters[] = {ReturnValueTraits<P1>::Representation(),
                                 ReturnValueTraits<P2>::Representation()};
-    VerifyParameters(ARRAY_SIZE(parameters), parameters);
+    VerifyParameters(arraysize(parameters), parameters);
   }
 
   template <typename P1, typename P2, typename P3>
@@ -283,7 +301,7 @@ class CallHelper {
     MachineType parameters[] = {ReturnValueTraits<P1>::Representation(),
                                 ReturnValueTraits<P2>::Representation(),
                                 ReturnValueTraits<P3>::Representation()};
-    VerifyParameters(ARRAY_SIZE(parameters), parameters);
+    VerifyParameters(arraysize(parameters), parameters);
   }
 
   template <typename P1, typename P2, typename P3, typename P4>
@@ -292,7 +310,7 @@ class CallHelper {
                                 ReturnValueTraits<P2>::Representation(),
                                 ReturnValueTraits<P3>::Representation(),
                                 ReturnValueTraits<P4>::Representation()};
-    VerifyParameters(ARRAY_SIZE(parameters), parameters);
+    VerifyParameters(arraysize(parameters), parameters);
   }
 #endif
 

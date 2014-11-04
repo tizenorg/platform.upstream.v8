@@ -97,14 +97,13 @@ void Deoptimizer::FillInputFrame(Address tos, JavaScriptFrame* frame) {
 
 
 void Deoptimizer::SetPlatformCompiledStubRegisters(
-    FrameDescription* output_frame, CodeStubInterfaceDescriptor* descriptor) {
+    FrameDescription* output_frame, CodeStubDescriptor* descriptor) {
   ApiFunction function(descriptor->deoptimization_handler());
   ExternalReference xref(&function, ExternalReference::BUILTIN_CALL, isolate_);
   intptr_t handler = reinterpret_cast<intptr_t>(xref.address());
   int params = descriptor->GetHandlerParameterCount();
-  output_frame->SetRegister(s0.code(), params);
-  output_frame->SetRegister(s1.code(), (params - 1) * kPointerSize);
-  output_frame->SetRegister(s2.code(), handler);
+  output_frame->SetRegister(a0.code(), params);
+  output_frame->SetRegister(a1.code(), handler);
 }
 
 

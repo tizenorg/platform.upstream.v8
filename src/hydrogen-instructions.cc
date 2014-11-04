@@ -4,6 +4,7 @@
 
 #include "src/v8.h"
 
+#include "src/base/bits.h"
 #include "src/double.h"
 #include "src/factory.h"
 #include "src/hydrogen-infer-representation.h"
@@ -527,10 +528,12 @@ void HValue::SetBlock(HBasicBlock* block) {
 }
 
 
-OStream& operator<<(OStream& os, const HValue& v) { return v.PrintTo(os); }
+std::ostream& operator<<(std::ostream& os, const HValue& v) {
+  return v.PrintTo(os);
+}
 
 
-OStream& operator<<(OStream& os, const TypeOf& t) {
+std::ostream& operator<<(std::ostream& os, const TypeOf& t) {
   if (t.value->representation().IsTagged() &&
       !t.value->type().Equals(HType::Tagged()))
     return os;
@@ -538,7 +541,7 @@ OStream& operator<<(OStream& os, const TypeOf& t) {
 }
 
 
-OStream& operator<<(OStream& os, const ChangesOf& c) {
+std::ostream& operator<<(std::ostream& os, const ChangesOf& c) {
   GVNFlagSet changes_flags = c.value->ChangesFlags();
   if (changes_flags.IsEmpty()) return os;
   os << " changes[";
@@ -617,7 +620,7 @@ void HValue::ComputeInitialRange(Zone* zone) {
 }
 
 
-OStream& operator<<(OStream& os, const HSourcePosition& p) {
+std::ostream& operator<<(std::ostream& os, const HSourcePosition& p) {
   if (p.IsUnknown()) {
     return os << "<?>";
   } else if (FLAG_hydrogen_track_positions) {
@@ -628,7 +631,7 @@ OStream& operator<<(OStream& os, const HSourcePosition& p) {
 }
 
 
-OStream& HInstruction::PrintTo(OStream& os) const {  // NOLINT
+std::ostream& HInstruction::PrintTo(std::ostream& os) const {  // NOLINT
   os << Mnemonic() << " ";
   PrintDataTo(os) << ChangesOf(this) << TypeOf(this);
   if (CheckFlag(HValue::kHasNoObservableSideEffects)) os << " [noOSE]";
@@ -637,7 +640,7 @@ OStream& HInstruction::PrintTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HInstruction::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HInstruction::PrintDataTo(std::ostream& os) const {  // NOLINT
   for (int i = 0; i < OperandCount(); ++i) {
     if (i > 0) os << " ";
     os << NameOf(OperandAt(i));
@@ -845,6 +848,7 @@ bool HInstruction::CanDeoptimize() {
     case HValue::kStoreNamedGeneric:
     case HValue::kStringCharCodeAt:
     case HValue::kStringCharFromCode:
+    case HValue::kTailCallThroughMegamorphicCache:
     case HValue::kThisFunction:
     case HValue::kTypeofIsAndBranch:
     case HValue::kUnknownOSRValue:
@@ -910,27 +914,28 @@ bool HInstruction::CanDeoptimize() {
 }
 
 
-OStream& operator<<(OStream& os, const NameOf& v) {
+std::ostream& operator<<(std::ostream& os, const NameOf& v) {
   return os << v.value->representation().Mnemonic() << v.value->id();
 }
 
-OStream& HDummyUse::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HDummyUse::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value());
 }
 
 
-OStream& HEnvironmentMarker::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HEnvironmentMarker::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << (kind() == BIND ? "bind" : "lookup") << " var[" << index()
             << "]";
 }
 
 
-OStream& HUnaryCall::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HUnaryCall::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value()) << " #" << argument_count();
 }
 
 
-OStream& HCallJSFunction::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCallJSFunction::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(function()) << " #" << argument_count();
 }
 
@@ -957,7 +962,7 @@ HCallJSFunction* HCallJSFunction::New(
 }
 
 
-OStream& HBinaryCall::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HBinaryCall::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(first()) << " " << NameOf(second()) << " #"
             << argument_count();
 }
@@ -1013,7 +1018,7 @@ void HBoundsCheck::ApplyIndexChange() {
 }
 
 
-OStream& HBoundsCheck::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HBoundsCheck::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(index()) << " " << NameOf(length());
   if (base() != NULL && (offset() != 0 || scale() != 0)) {
     os << " base: ((";
@@ -1068,15 +1073,16 @@ Range* HBoundsCheck::InferRange(Zone* zone) {
 }
 
 
-OStream& HBoundsCheckBaseIndexInformation::PrintDataTo(
-    OStream& os) const {  // NOLINT
+std::ostream& HBoundsCheckBaseIndexInformation::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   // TODO(svenpanne) This 2nd base_index() looks wrong...
   return os << "base: " << NameOf(base_index())
             << ", check: " << NameOf(base_index());
 }
 
 
-OStream& HCallWithDescriptor::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCallWithDescriptor::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   for (int i = 0; i < OperandCount(); i++) {
     os << NameOf(OperandAt(i)) << " ";
   }
@@ -1084,42 +1090,46 @@ OStream& HCallWithDescriptor::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HCallNewArray::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCallNewArray::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << ElementsKindToString(elements_kind()) << " ";
   return HBinaryCall::PrintDataTo(os);
 }
 
 
-OStream& HCallRuntime::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCallRuntime::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << name()->ToCString().get() << " ";
   if (save_doubles() == kSaveFPRegs) os << "[save doubles] ";
   return os << "#" << argument_count();
 }
 
 
-OStream& HClassOfTestAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HClassOfTestAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << "class_of_test(" << NameOf(value()) << ", \""
             << class_name()->ToCString().get() << "\")";
 }
 
 
-OStream& HWrapReceiver::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HWrapReceiver::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(receiver()) << " " << NameOf(function());
 }
 
 
-OStream& HAccessArgumentsAt::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HAccessArgumentsAt::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(arguments()) << "[" << NameOf(index()) << "], length "
             << NameOf(length());
 }
 
 
-OStream& HAllocateBlockContext::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HAllocateBlockContext::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(context()) << " " << NameOf(function());
 }
 
 
-OStream& HControlInstruction::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HControlInstruction::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << " goto (";
   bool first_block = true;
   for (HSuccessorIterator it(this); !it.Done(); it.Advance()) {
@@ -1131,13 +1141,14 @@ OStream& HControlInstruction::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HUnaryControlInstruction::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HUnaryControlInstruction::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(value());
   return HControlInstruction::PrintDataTo(os);
 }
 
 
-OStream& HReturn::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HReturn::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value()) << " (pop " << NameOf(parameter_count())
             << " values)";
 }
@@ -1183,13 +1194,13 @@ bool HBranch::KnownSuccessorBlock(HBasicBlock** block) {
 }
 
 
-OStream& HBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HBranch::PrintDataTo(std::ostream& os) const {  // NOLINT
   return HUnaryControlInstruction::PrintDataTo(os) << " "
                                                    << expected_input_types();
 }
 
 
-OStream& HCompareMap::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCompareMap::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(value()) << " (" << *map().handle() << ")";
   HControlInstruction::PrintDataTo(os);
   if (known_successor_index() == 0) {
@@ -1253,17 +1264,19 @@ Range* HUnaryMathOperation::InferRange(Zone* zone) {
 }
 
 
-OStream& HUnaryMathOperation::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HUnaryMathOperation::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << OpName() << " " << NameOf(value());
 }
 
 
-OStream& HUnaryOperation::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HUnaryOperation::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value());
 }
 
 
-OStream& HHasInstanceTypeAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HHasInstanceTypeAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(value());
   switch (from_) {
     case FIRST_JS_RECEIVER_TYPE:
@@ -1285,7 +1298,8 @@ OStream& HHasInstanceTypeAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HTypeofIsAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HTypeofIsAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(value()) << " == " << type_literal()->ToCString().get();
   return HControlInstruction::PrintDataTo(os);
 }
@@ -1338,7 +1352,7 @@ bool HTypeofIsAndBranch::KnownSuccessorBlock(HBasicBlock** block) {
 }
 
 
-OStream& HCheckMapValue::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCheckMapValue::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value()) << " " << NameOf(map());
 }
 
@@ -1354,18 +1368,19 @@ HValue* HCheckMapValue::Canonicalize() {
 }
 
 
-OStream& HForInPrepareMap::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HForInPrepareMap::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(enumerable());
 }
 
 
-OStream& HForInCacheArray::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HForInCacheArray::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(enumerable()) << " " << NameOf(map()) << "[" << idx_
             << "]";
 }
 
 
-OStream& HLoadFieldByIndex::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadFieldByIndex::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(object()) << " " << NameOf(index());
 }
 
@@ -1502,7 +1517,7 @@ HValue* HWrapReceiver::Canonicalize() {
 }
 
 
-OStream& HTypeof::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HTypeof::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value());
 }
 
@@ -1511,28 +1526,20 @@ HInstruction* HForceRepresentation::New(Zone* zone, HValue* context,
        HValue* value, Representation representation) {
   if (FLAG_fold_constants && value->IsConstant()) {
     HConstant* c = HConstant::cast(value);
-    if (c->HasNumberValue()) {
-      double double_res = c->DoubleValue();
-      if (representation.IsDouble()) {
-        return HConstant::New(zone, context, double_res);
-
-      } else if (representation.CanContainDouble(double_res)) {
-        return HConstant::New(zone, context,
-                              static_cast<int32_t>(double_res),
-                              representation);
-      }
-    }
+    c = c->CopyToRepresentation(representation, zone);
+    if (c != NULL) return c;
   }
   return new(zone) HForceRepresentation(value, representation);
 }
 
 
-OStream& HForceRepresentation::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HForceRepresentation::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << representation().Mnemonic() << " " << NameOf(value());
 }
 
 
-OStream& HChange::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HChange::PrintDataTo(std::ostream& os) const {  // NOLINT
   HUnaryOperation::PrintDataTo(os);
   os << " " << from().Mnemonic() << " to " << to().Mnemonic();
 
@@ -1644,7 +1651,7 @@ void HCheckInstanceType::GetCheckMaskAndTag(uint8_t* mask, uint8_t* tag) {
 }
 
 
-OStream& HCheckMaps::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCheckMaps::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(value()) << " [" << *maps()->at(0).handle();
   for (int i = 1; i < maps()->size(); ++i) {
     os << "," << *maps()->at(i).handle();
@@ -1675,7 +1682,7 @@ HValue* HCheckMaps::Canonicalize() {
 }
 
 
-OStream& HCheckValue::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCheckValue::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value()) << " " << Brief(*object().handle());
 }
 
@@ -1698,19 +1705,29 @@ const char* HCheckInstanceType::GetCheckName() const {
 }
 
 
-OStream& HCheckInstanceType::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCheckInstanceType::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << GetCheckName() << " ";
   return HUnaryOperation::PrintDataTo(os);
 }
 
 
-OStream& HCallStub::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCallStub::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << CodeStub::MajorName(major_key_, false) << " ";
   return HUnaryCall::PrintDataTo(os);
 }
 
 
-OStream& HUnknownOSRValue::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HTailCallThroughMegamorphicCache::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
+  for (int i = 0; i < OperandCount(); i++) {
+    os << NameOf(OperandAt(i)) << " ";
+  }
+  return os << "flags: " << flags();
+}
+
+
+std::ostream& HUnknownOSRValue::PrintDataTo(std::ostream& os) const {  // NOLINT
   const char* type = "expression";
   if (environment_->is_local_index(index_)) type = "local";
   if (environment_->is_special_index(index_)) type = "special";
@@ -1719,7 +1736,7 @@ OStream& HUnknownOSRValue::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HInstanceOf::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HInstanceOf::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(left()) << " " << NameOf(right()) << " "
             << NameOf(context());
 }
@@ -2194,7 +2211,7 @@ void InductionVariableData::ChecksRelatedToLength::AddCheck(
  */
 int32_t InductionVariableData::ComputeIncrement(HPhi* phi,
                                                 HValue* phi_operand) {
-  if (!phi_operand->representation().IsInteger32()) return 0;
+  if (!phi_operand->representation().IsSmiOrInteger32()) return 0;
 
   if (phi_operand->IsAdd()) {
     HAdd* operation = HAdd::cast(phi_operand);
@@ -2437,7 +2454,7 @@ void HPushArguments::AddInput(HValue* value) {
 }
 
 
-OStream& HPhi::PrintTo(OStream& os) const {  // NOLINT
+std::ostream& HPhi::PrintTo(std::ostream& os) const {  // NOLINT
   os << "[";
   for (int i = 0; i < OperandCount(); ++i) {
     os << " " << NameOf(OperandAt(i)) << " ";
@@ -2569,7 +2586,7 @@ void HSimulate::MergeWith(ZoneList<HSimulate*>* list) {
 }
 
 
-OStream& HSimulate::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HSimulate::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << "id=" << ast_id().ToInt();
   if (pop_count_ > 0) os << " pop " << pop_count_;
   if (values_.length() > 0) {
@@ -2631,7 +2648,7 @@ void HCapturedObject::ReplayEnvironment(HEnvironment* env) {
 }
 
 
-OStream& HCapturedObject::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCapturedObject::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << "#" << capture_id() << " ";
   return HDematerializedObject::PrintDataTo(os);
 }
@@ -2644,7 +2661,7 @@ void HEnterInlined::RegisterReturnTarget(HBasicBlock* return_target,
 }
 
 
-OStream& HEnterInlined::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HEnterInlined::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << function()->debug_name()->ToCString().get()
             << ", id=" << function()->id().ToInt();
 }
@@ -2652,7 +2669,7 @@ OStream& HEnterInlined::PrintDataTo(OStream& os) const {  // NOLINT
 
 static bool IsInteger32(double value) {
   double roundtrip_value = static_cast<double>(static_cast<int32_t>(value));
-  return BitCast<int64_t>(roundtrip_value) == BitCast<int64_t>(value);
+  return bit_cast<int64_t>(roundtrip_value) == bit_cast<int64_t>(value);
 }
 
 
@@ -2813,6 +2830,13 @@ void HConstant::Initialize(Representation r) {
       r = Representation::Tagged();
     }
   }
+  if (r.IsSmi()) {
+    // If we have an existing handle, zap it, because it might be a heap
+    // number which we must not re-use when copying this HConstant to
+    // Tagged representation later, because having Smi representation now
+    // could cause heap object checks not to get emitted.
+    object_ = Unique<Object>(Handle<Object>::null());
+  }
   set_representation(r);
   SetFlag(kUseGVN);
 }
@@ -2838,7 +2862,7 @@ bool HConstant::ImmortalImmovable() const {
   DCHECK(!object_.IsKnownGlobal(heap->nan_value()));
   return
 #define IMMORTAL_IMMOVABLE_ROOT(name) \
-      object_.IsKnownGlobal(heap->name()) ||
+  object_.IsKnownGlobal(heap->root(Heap::k##name##RootIndex)) ||
       IMMORTAL_IMMOVABLE_ROOT_LIST(IMMORTAL_IMMOVABLE_ROOT)
 #undef IMMORTAL_IMMOVABLE_ROOT
 #define INTERNALIZED_STRING(name, value) \
@@ -2927,7 +2951,7 @@ Maybe<HConstant*> HConstant::CopyToTruncatedNumber(Zone* zone) {
 }
 
 
-OStream& HConstant::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HConstant::PrintDataTo(std::ostream& os) const {  // NOLINT
   if (has_int32_value_) {
     os << int32_value_ << " ";
   } else if (has_double_value_) {
@@ -2946,7 +2970,7 @@ OStream& HConstant::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HBinaryOperation::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HBinaryOperation::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(left()) << " " << NameOf(right());
   if (CheckFlag(kCanOverflow)) os << " !";
   if (CheckFlag(kBailoutOnMinusZero)) os << " -0?";
@@ -3173,25 +3197,28 @@ Range* HLoadKeyed::InferRange(Zone* zone) {
 }
 
 
-OStream& HCompareGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCompareGeneric::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << Token::Name(token()) << " ";
   return HBinaryOperation::PrintDataTo(os);
 }
 
 
-OStream& HStringCompareAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStringCompareAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << Token::Name(token()) << " ";
   return HControlInstruction::PrintDataTo(os);
 }
 
 
-OStream& HCompareNumericAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCompareNumericAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << Token::Name(token()) << " " << NameOf(left()) << " " << NameOf(right());
   return HControlInstruction::PrintDataTo(os);
 }
 
 
-OStream& HCompareObjectEqAndBranch::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HCompareObjectEqAndBranch::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(left()) << " " << NameOf(right());
   return HControlInstruction::PrintDataTo(os);
 }
@@ -3331,7 +3358,7 @@ void HCompareMinusZeroAndBranch::InferRepresentation(
 }
 
 
-OStream& HGoto::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HGoto::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << *SuccessorAt(0);
 }
 
@@ -3375,12 +3402,12 @@ void HCompareNumericAndBranch::InferRepresentation(
 }
 
 
-OStream& HParameter::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HParameter::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << index();
 }
 
 
-OStream& HLoadNamedField::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadNamedField::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(object()) << access_;
 
   if (maps() != NULL) {
@@ -3396,13 +3423,14 @@ OStream& HLoadNamedField::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HLoadNamedGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadNamedGeneric::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   Handle<String> n = Handle<String>::cast(name());
   return os << NameOf(object()) << "." << n->ToCString().get();
 }
 
 
-OStream& HLoadKeyed::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadKeyed::PrintDataTo(std::ostream& os) const {  // NOLINT
   if (!is_external()) {
     os << NameOf(elements());
   } else {
@@ -3490,7 +3518,8 @@ bool HLoadKeyed::RequiresHoleCheck() const {
 }
 
 
-OStream& HLoadKeyedGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadKeyedGeneric::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(object()) << "[" << NameOf(key()) << "]";
 }
 
@@ -3532,14 +3561,15 @@ HValue* HLoadKeyedGeneric::Canonicalize() {
 }
 
 
-OStream& HStoreNamedGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreNamedGeneric::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   Handle<String> n = Handle<String>::cast(name());
   return os << NameOf(object()) << "." << n->ToCString().get() << " = "
             << NameOf(value());
 }
 
 
-OStream& HStoreNamedField::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreNamedField::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(object()) << access_ << " = " << NameOf(value());
   if (NeedsWriteBarrier()) os << " (write-barrier)";
   if (has_transition()) os << " (transition map " << *transition_map() << ")";
@@ -3547,7 +3577,7 @@ OStream& HStoreNamedField::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HStoreKeyed::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreKeyed::PrintDataTo(std::ostream& os) const {  // NOLINT
   if (!is_external()) {
     os << NameOf(elements());
   } else {
@@ -3562,13 +3592,15 @@ OStream& HStoreKeyed::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HStoreKeyedGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreKeyedGeneric::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(object()) << "[" << NameOf(key())
             << "] = " << NameOf(value());
 }
 
 
-OStream& HTransitionElementsKind::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HTransitionElementsKind::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(object());
   ElementsKind from_kind = original_map().handle()->elements_kind();
   ElementsKind to_kind = transitioned_map().handle()->elements_kind();
@@ -3581,16 +3613,16 @@ OStream& HTransitionElementsKind::PrintDataTo(OStream& os) const {  // NOLINT
 }
 
 
-OStream& HLoadGlobalCell::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadGlobalCell::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << "[" << *cell().handle() << "]";
-  if (!details_.IsDontDelete()) os << " (deleteable)";
+  if (details_.IsConfigurable()) os << " (configurable)";
   if (details_.IsReadOnly()) os << " (read-only)";
   return os;
 }
 
 
 bool HLoadGlobalCell::RequiresHoleCheck() const {
-  if (details_.IsDontDelete() && !details_.IsReadOnly()) return false;
+  if (!details_.IsConfigurable()) return false;
   for (HUseIterator it(uses()); !it.Done(); it.Advance()) {
     HValue* use = it.value();
     if (!use->IsChange()) return true;
@@ -3599,31 +3631,34 @@ bool HLoadGlobalCell::RequiresHoleCheck() const {
 }
 
 
-OStream& HLoadGlobalGeneric::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadGlobalGeneric::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << name()->ToCString().get() << " ";
 }
 
 
-OStream& HInnerAllocatedObject::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HInnerAllocatedObject::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   os << NameOf(base_object()) << " offset ";
   return offset()->PrintTo(os);
 }
 
 
-OStream& HStoreGlobalCell::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreGlobalCell::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << "[" << *cell().handle() << "] = " << NameOf(value());
-  if (!details_.IsDontDelete()) os << " (deleteable)";
+  if (details_.IsConfigurable()) os << " (configurable)";
   if (details_.IsReadOnly()) os << " (read-only)";
   return os;
 }
 
 
-OStream& HLoadContextSlot::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HLoadContextSlot::PrintDataTo(std::ostream& os) const {  // NOLINT
   return os << NameOf(value()) << "[" << slot_index() << "]";
 }
 
 
-OStream& HStoreContextSlot::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStoreContextSlot::PrintDataTo(
+    std::ostream& os) const {  // NOLINT
   return os << NameOf(context()) << "[" << slot_index()
             << "] = " << NameOf(value());
 }
@@ -3978,7 +4013,7 @@ void HAllocate::ClearNextMapWord(int offset) {
 }
 
 
-OStream& HAllocate::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HAllocate::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << NameOf(size()) << " (";
   if (IsNewSpaceAllocation()) os << "N";
   if (IsOldPointerSpaceAllocation()) os << "P";
@@ -4087,7 +4122,7 @@ HInstruction* HStringAdd::New(Zone* zone,
 }
 
 
-OStream& HStringAdd::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HStringAdd::PrintDataTo(std::ostream& os) const {  // NOLINT
   if ((flags() & STRING_ADD_CHECK_BOTH) == STRING_ADD_CHECK_BOTH) {
     os << "_CheckBoth";
   } else if ((flags() & STRING_ADD_CHECK_BOTH) == STRING_ADD_CHECK_LEFT) {
@@ -4179,8 +4214,7 @@ HInstruction* HUnaryMathOperation::New(
         return H_CONSTANT_DOUBLE(Floor(d));
       case kMathClz32: {
         uint32_t i = DoubleToUint32(d);
-        return H_CONSTANT_INT(
-            (i == 0) ? 32 : CompilerIntrinsics::CountLeadingZeros(i));
+        return H_CONSTANT_INT(base::bits::CountLeadingZeros32(i));
       }
       default:
         UNREACHABLE();
@@ -4423,7 +4457,7 @@ HInstruction* HSeqStringGetChar::New(Zone* zone,
 #undef H_CONSTANT_DOUBLE
 
 
-OStream& HBitwise::PrintDataTo(OStream& os) const {  // NOLINT
+std::ostream& HBitwise::PrintDataTo(std::ostream& os) const {  // NOLINT
   os << Token::Name(op_) << " ";
   return HBitwiseBinaryOperation::PrintDataTo(os);
 }
@@ -4642,24 +4676,9 @@ HObjectAccess HObjectAccess::ForBackingStoreOffset(int offset,
 }
 
 
-HObjectAccess HObjectAccess::ForField(Handle<Map> map,
-                                      LookupResult* lookup,
+HObjectAccess HObjectAccess::ForField(Handle<Map> map, int index,
+                                      Representation representation,
                                       Handle<String> name) {
-  DCHECK(lookup->IsField() || lookup->IsTransitionToField());
-  int index;
-  Representation representation;
-  if (lookup->IsField()) {
-    index = lookup->GetLocalFieldIndexFromMap(*map);
-    representation = lookup->representation();
-  } else {
-    Map* transition = lookup->GetTransitionTarget();
-    int descriptor = transition->LastAdded();
-    index = transition->instance_descriptors()->GetFieldIndex(descriptor) -
-        map->inobject_properties();
-    PropertyDetails details =
-        transition->instance_descriptors()->GetDetails(descriptor);
-    representation = details.representation();
-  }
   if (index < 0) {
     // Negative property indices are in-object properties, indexed
     // from the end of the fixed part of the object.
@@ -4753,7 +4772,7 @@ void HObjectAccess::SetGVNFlags(HValue *instr, PropertyAccessType access_type) {
 }
 
 
-OStream& operator<<(OStream& os, const HObjectAccess& access) {
+std::ostream& operator<<(std::ostream& os, const HObjectAccess& access) {
   os << ".";
 
   switch (access.portion()) {
