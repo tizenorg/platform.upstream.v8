@@ -1,5 +1,5 @@
 Name:           v8
-Version:        3.29.8
+Version:        3.30.30
 Release:        0
 Summary:        JavaScript Engine
 License:        BSD-3-Clause
@@ -73,7 +73,7 @@ sed -i -e '/v8_use_snapshot/s/true/false/' build/features.gypi
 
 %build
 env=CCFLAGS:"-fPIC"
-make %{target}.release -j3 library=shared snapshots=on soname_version=%{somajor} use_system_icu=on
+make %{target}.release %{?_smp_mflags} library=shared snapshots=on soname_version=%{somajor} use_system_icu=on
 
 %install
 mkdir -p %{buildroot}%{_includedir}/v8/x64
