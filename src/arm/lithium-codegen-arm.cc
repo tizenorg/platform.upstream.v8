@@ -5450,11 +5450,11 @@ void LCodeGen::DoTypeof(LTypeof* instr) {
 
 void LCodeGen::DoTypeofIsAndBranch(LTypeofIsAndBranch* instr) {
   Register input = ToRegister(instr->value());
-
   Condition final_branch_condition = EmitTypeofIs(instr->TrueLabel(chunk_),
                                                   instr->FalseLabel(chunk_),
                                                   input,
-                                                  instr->type_literal());
+                                                  instr->type_literal(),
+                                                  instr);
   if (final_branch_condition != kNoCondition) {
     EmitBranch(instr, final_branch_condition);
   }
@@ -5464,7 +5464,8 @@ void LCodeGen::DoTypeofIsAndBranch(LTypeofIsAndBranch* instr) {
 Condition LCodeGen::EmitTypeofIs(Label* true_label,
                                  Label* false_label,
                                  Register input,
-                                 Handle<String> type_name) {
+                                 Handle<String> type_name,
+                                 LTypeofIsAndBranch* instr) {
   Condition final_branch_condition = kNoCondition;
   Register scratch = scratch0();
   Factory* factory = isolate()->factory();
@@ -5492,13 +5493,18 @@ Condition LCodeGen::EmitTypeofIs(Label* true_label,
 
   } else if (String::Equals(type_name, factory->undefined_string())) {
     __ CompareRoot(input, Heap::kUndefinedValueRootIndex);
-    __ b(eq, true_label);
-    __ JumpIfSmi(input, false_label);
-    // Check for undetectable objects => true.
-    __ ldr(scratch, FieldMemOperand(input, HeapObject::kMapOffset));
-    __ ldrb(scratch, FieldMemOperand(scratch, Map::kBitFieldOffset));
-    __ tst(scratch, Operand(1 << Map::kIsUndetectable));
-    final_branch_condition = ne;
+    bool can_be_document_all = instr->hydrogen()->value()->IsLoadNamedField();
+    if (!can_be_document_all) {
+      final_branch_condition = eq;
+    } else {
+      __ b(eq, true_label);
+      __ JumpIfSmi(input, false_label);
+      // Check for undetectable objects => true.
+      __ ldr(scratch, FieldMemOperand(input, HeapObject::kMapOffset));
+      __ ldrb(scratch, FieldMemOperand(scratch, Map::kBitFieldOffset));
+      __ tst(scratch, Operand(1 << Map::kIsUndetectable));
+      final_branch_condition = ne;
+    }
 
   } else if (String::Equals(type_name, factory->function_string())) {
     __ JumpIfSmi(input, false_label);

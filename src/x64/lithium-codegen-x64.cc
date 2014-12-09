@@ -5576,13 +5576,18 @@ Condition LCodeGen::EmitTypeofIs(LTypeofIsAndBranch* instr, Register input) {
 
   } else if (String::Equals(type_name, factory->undefined_string())) {
     __ CompareRoot(input, Heap::kUndefinedValueRootIndex);
-    __ j(equal, true_label, true_distance);
-    __ JumpIfSmi(input, false_label, false_distance);
-    // Check for undetectable objects => true.
-    __ movp(input, FieldOperand(input, HeapObject::kMapOffset));
-    __ testb(FieldOperand(input, Map::kBitFieldOffset),
-             Immediate(1 << Map::kIsUndetectable));
-    final_branch_condition = not_zero;
+    bool can_be_document_all = instr->hydrogen()->value()->IsLoadNamedField();
+    if (!can_be_document_all) {
+      final_branch_condition = equal;
+    } else {
+      __ j(equal, true_label, true_distance);
+      __ JumpIfSmi(input, false_label, false_distance);
+      // Check for undetectable objects => true.
+      __ movp(input, FieldOperand(input, HeapObject::kMapOffset));
+      __ testb(FieldOperand(input, Map::kBitFieldOffset),
+               Immediate(1 << Map::kIsUndetectable));
+      final_branch_condition = not_zero;
+    }
 
   } else if (String::Equals(type_name, factory->function_string())) {
     __ JumpIfSmi(input, false_label, false_distance);

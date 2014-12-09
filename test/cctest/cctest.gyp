@@ -120,6 +120,7 @@
         'test-deoptimization.cc',
         'test-dictionary.cc',
         'test-diy-fp.cc',
+        'test-document-all.cc',
         'test-double.cc',
         'test-dtoa.cc',
         'test-fast-dtoa.cc',

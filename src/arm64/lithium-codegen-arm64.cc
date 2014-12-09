@@ -5809,14 +5809,20 @@ void LCodeGen::DoTypeofIsAndBranch(LTypeofIsAndBranch* instr) {
 
   } else if (String::Equals(type_name, factory->undefined_string())) {
     DCHECK(instr->temp1() != NULL);
-    Register scratch = ToRegister(instr->temp1());
+    bool can_be_document_all = instr->hydrogen()->value()->IsLoadNamedField();
+    if (!can_be_document_all) {
+      __ CompareRoot(value, Heap::kUndefinedValueRootIndex);
+      EmitBranch(instr, eq);
+    } else {
+      Register scratch = ToRegister(instr->temp1());
 
-    __ JumpIfRoot(value, Heap::kUndefinedValueRootIndex, true_label);
-    __ JumpIfSmi(value, false_label);
-    // Check for undetectable objects and jump to the true branch in this case.
-    __ Ldr(scratch, FieldMemOperand(value, HeapObject::kMapOffset));
-    __ Ldrb(scratch, FieldMemOperand(scratch, Map::kBitFieldOffset));
-    EmitTestAndBranch(instr, ne, scratch, 1 << Map::kIsUndetectable);
+      __ JumpIfRoot(value, Heap::kUndefinedValueRootIndex, true_label);
+      __ JumpIfSmi(value, false_label);
+      // Check for undetectable objects and jump to the true branch in this case
+      __ Ldr(scratch, FieldMemOperand(value, HeapObject::kMapOffset));
+      __ Ldrb(scratch, FieldMemOperand(scratch, Map::kBitFieldOffset));
+      EmitTestAndBranch(instr, ne, scratch, 1 << Map::kIsUndetectable);
+    }
 
   } else if (String::Equals(type_name, factory->function_string())) {
     DCHECK(instr->temp1() != NULL);

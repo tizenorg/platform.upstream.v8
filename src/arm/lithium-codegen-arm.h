@@ -283,7 +283,8 @@ class LCodeGen: public LCodeGenBase {
   Condition EmitTypeofIs(Label* true_label,
                          Label* false_label,
                          Register input,
-                         Handle<String> type_name);
+                         Handle<String> type_name,
+                         LTypeofIsAndBranch* instr);
 
   // Emits optimized code for %_IsString(x).  Preserves input register.
   // Returns the condition on which a final split to
