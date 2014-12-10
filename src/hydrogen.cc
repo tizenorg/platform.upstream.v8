@@ -8691,6 +8691,20 @@ bool HOptimizedGraphBuilder::TryInlineBuiltinFunctionCall(Call* expr) {
         return true;
       }
       break;
+    // http://107.108.218.239/bugzilla/show_bug.cgi?id=9736
+    case kMathMax:
+    case kMathMin:
+      if (expr->arguments()->length() == 2) {
+        HValue* right = Pop();
+        HValue* left = Pop();
+        Drop(2);  // Receiver and function.
+        HMathMinMax::Operation op = (id == kMathMin) ? HMathMinMax::kMathMin
+          : HMathMinMax::kMathMax;
+        HInstruction* result = NewUncasted<HMathMinMax>(left, right, op);
+        ast_context()->ReturnInstruction(result, expr->id());
+        return true;
+      }
+      break;
     case kMathImul:
       if (expr->arguments()->length() == 2) {
         HValue* right = Pop();
