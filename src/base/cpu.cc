@@ -10,7 +10,7 @@
 #if V8_OS_LINUX
 #include <linux/auxvec.h>  // AT_HWCAP
 #endif
-#if V8_GLIBC_PREREQ(2, 16)
+#if V8_GLIBC_PREREQ(2, 16) && !defined(OS_TIZEN_MOBILE)
 #include <sys/auxv.h>  // getauxval()
 #endif
 #if V8_OS_QNX
@@ -110,7 +110,23 @@ static V8_INLINE void __cpuid(int cpu_info[4], int info_type) {
 
 static uint32_t ReadELFHWCaps() {
   uint32_t result = 0;
-#if V8_GLIBC_PREREQ(2, 16)
+
+  // The latest Tizen mobile development toolchains come with
+  // GCC 4.6.3 and glibc 2.13 available by default. These are also what
+  // is default available on the latest Tizen mobile targets (namely
+  // Tizen 2.3 and 2.4).
+  // In order to build chromium-efl, which requires at least GCC 4.8,
+  // we overrode the toolchain's GCC packages with pre-built GCC 4.8
+  // packages from the TV toolchain, including glibc 2.18 packages.
+  // So at build time, the condition below evaluates to 'true' and
+  // chromium-efl tied itself up against a glibc version >= than 2.16.
+  //
+  // glibc 2.13 (available on target) and 2.18 (available on the toolchain)
+  // are backward compatible apart from some symbols, including
+  // getauxval (below). In order to avoid runtime dependencies
+  // on glibc symbols not compatible with glibc 2.13, we fallback
+  // to the equivalent non-glibc2.16 implementation.
+#if V8_GLIBC_PREREQ(2, 16) && !defined(OS_TIZEN_MOBILE)
   result = static_cast<uint32_t>(getauxval(AT_HWCAP));
 #else
   // Read the ELF HWCAP flags by parsing /proc/self/auxv.
