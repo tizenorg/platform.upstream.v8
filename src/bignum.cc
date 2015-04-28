@@ -83,8 +83,8 @@ void Bignum::AssignDecimalString(Vector<const char> value) {
   // 2^64 = 18446744073709551616 > 10^19
   const int kMaxUint64DecimalDigits = 19;
   Zero();
-  int length = value.length();
-  int pos = 0;
+  unsigned int length = value.length();
+  unsigned int pos = 0;
   // Let's just say that each digit needs 4 bits.
   while (length >= kMaxUint64DecimalDigits) {
     uint64_t digits = ReadUInt64(value, pos, kMaxUint64DecimalDigits);
