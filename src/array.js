@@ -416,15 +416,15 @@ function InnerArrayJoin(separator, array, length) {
     separator = TO_STRING(separator);
   }
 
-  var result = %_FastOneByteArrayJoin(array, separator);
-  if (!IS_UNDEFINED(result)) return result;
-
   // Fast case for one-element arrays.
   if (length === 1) {
     var e = array[0];
     if (IS_NULL_OR_UNDEFINED(e)) return '';
     return TO_STRING(e);
   }
+
+  var result = %_FastOneByteArrayJoin(array, separator);
+  if (!IS_UNDEFINED(result)) return result;
 
   return Join(array, length, separator, ConvertToString);
 }
