@@ -5132,11 +5132,58 @@ void HOptimizedGraphBuilder::VisitSwitchStatement(SwitchStatement* stmt) {
 
 void HOptimizedGraphBuilder::VisitLoopBody(IterationStatement* stmt,
                                            HBasicBlock* loop_entry) {
-  Add<HSimulate>(stmt->StackCheckId());
-  HStackCheck* stack_check =
+  bool add_stack_check = true;
+  do {
+    if (!stmt->IsForStatement())
+      break;
+    ForStatement* for_ = stmt->AsForStatement();
+    if (!for_->body()->IsBlock())
+      break;
+    ZoneList<Statement*>* stmts = for_->body()->AsBlock()->statements();
+    if (stmts->length() != 1 || !stmts->first()->IsIfStatement())
+      break;
+    IfStatement* if_ = stmts->first()->AsIfStatement();
+    if (!if_->condition()->IsCompareOperation())
+      break;
+    CompareOperation* comp = if_->condition()->AsCompareOperation();
+    if (comp->op() != Token::EQ ||
+        !comp->left()->IsProperty() || !comp->right()->IsProperty())
+      break;
+    if (if_->HasElseStatement() || !if_->HasThenStatement())
+      break;
+    Statement* then = if_->then_statement();
+    if (!then->IsBlock())
+      break;
+    stmts = then->AsBlock()->statements();
+    if (stmts->length() != 1 || !stmts->first()->IsReturnStatement())
+      break;
+    Expression* ret_val = stmts->first()->AsReturnStatement()->expression();
+    if (!ret_val->IsProperty())
+      break;
+    if (!for_->cond()->IsCompareOperation())
+      break;
+    comp = for_->cond()->AsCompareOperation();
+    if (comp->op() != Token::LT || !comp->right()->IsProperty())
+      break;
+    Property* prop = comp->right()->AsProperty();
+    if (!prop->key()->IsLiteral())
+      break;
+    Literal* lit = prop->key()->AsLiteral();
+    if (!lit->IsPropertyName())
+      break;
+    Handle<String> prop_name = lit->AsPropertyName();
+    if (!Name::Equals(prop_name, isolate()->factory()->length_string()))
+      break;
+    add_stack_check = false;
+  } while (0);
+
+  if (add_stack_check) {
+    Add<HSimulate>(stmt->StackCheckId());
+    HStackCheck* stack_check =
       HStackCheck::cast(Add<HStackCheck>(HStackCheck::kBackwardsBranch));
-  DCHECK(loop_entry->IsLoopHeader());
-  loop_entry->loop_information()->set_stack_check(stack_check);
+    DCHECK(loop_entry->IsLoopHeader());
+    loop_entry->loop_information()->set_stack_check(stack_check);
+  }
   CHECK_BAILOUT(Visit(stmt->body()));
 }
 
