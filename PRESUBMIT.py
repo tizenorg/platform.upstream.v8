@@ -80,7 +80,9 @@ def _V8PresubmitChecks(input_api, output_api):
   if not CheckExternalReferenceRegistration(input_api.PresubmitLocalPath()):
     results.append(output_api.PresubmitError(
         "External references registration check failed"))
-  results.extend(CheckAuthorizedAuthor(input_api, output_api))
+#  For internal patches, we should not run Author check.
+#  Hence, commenting this out.
+#  results.extend(CheckAuthorizedAuthor(input_api, output_api))
   return results
 
 
@@ -95,7 +97,8 @@ def _CheckUnwantedDependencies(input_api, output_api):
   original_sys_path = sys.path
   try:
     sys.path = sys.path + [input_api.os_path.join(
-        input_api.PresubmitLocalPath(), 'buildtools', 'checkdeps')]
+#       Adding '..' in the path to run it properly in our local environment.
+        input_api.PresubmitLocalPath(), '..', 'buildtools', 'checkdeps')]
     import checkdeps
     from cpp_checker import CppChecker
     from rules import Rule
@@ -216,8 +219,10 @@ def _CheckNoProductionCodeUsingTestOnlyFunctions(input_api, output_api):
 def _CommonChecks(input_api, output_api):
   """Checks common to both upload and commit."""
   results = []
-  results.extend(input_api.canned_checks.CheckOwners(
-      input_api, output_api, source_file_filter=None))
+#  For internal patches, we should not run Owner check.
+#  Hence, commenting this out.
+#  results.extend(input_api.canned_checks.CheckOwners(
+#      input_api, output_api, source_file_filter=None))
   results.extend(input_api.canned_checks.CheckPatchFormatted(
       input_api, output_api))
   results.extend(_V8PresubmitChecks(input_api, output_api))

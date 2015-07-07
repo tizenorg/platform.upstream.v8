@@ -83,7 +83,9 @@ def CppLintWorker(command):
       if m:
         out_lines += out_line
         error_count += 1
-    sys.stdout.write(out_lines)
+#    Too long messages from lint affect to presubmitbot.
+#    Hence, commenting this out.
+#    sys.stdout.write(out_lines)
     return error_count
   except KeyboardInterrupt:
     process.kill()
