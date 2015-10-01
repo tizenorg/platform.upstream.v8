@@ -1,3 +1,24 @@
+2015-10-01: Version 4.7.83
+
+        Extend Annex B 3.3 sloppy-mode block-scoped hoisting to scripts, eval
+        (issue 4441).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-10-01: Version 4.7.82
+
+        [V8] Add name of function for function's closure scope (Chromium issue
+        493156).
+
+        Performance and stability improvements on all platforms.
+
+
+2015-09-30: Version 4.7.81
+
+        Performance and stability improvements on all platforms.
+
+
 2015-09-30: Version 4.7.80
 
         Performance and stability improvements on all platforms.
