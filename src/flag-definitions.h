@@ -618,6 +618,9 @@ DEFINE_INT(target_semi_space_size, 0,
 DEFINE_INT(max_semi_space_size, 0,
            "max size of a semi-space (in MBytes), the new space consists of two"
            "semi-spaces")
+DEFINE_INT(custom_semi_space_growth, 0, "Enable custom new space growth")
+DEFINE_INT(grow_semi_space_by_n_pages, 1,
+           "Number of pages by which to grow the new space")
 DEFINE_INT(semi_space_growth_factor, 2, "factor by which to grow the new space")
 DEFINE_BOOL(experimental_new_space_growth_heuristic, false,
             "Grow the new space based on the percentage of survivors instead "
