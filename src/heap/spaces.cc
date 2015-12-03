@@ -1314,6 +1314,12 @@ void NewSpace::Grow() {
   int new_capacity =
       Min(MaximumCapacity(),
           FLAG_semi_space_growth_factor * static_cast<int>(TotalCapacity()));
+  if (FLAG_custom_semi_space_growth)
+    new_capacity = static_cast<int>(TotalCapacity()) +
+    FLAG_grow_semi_space_by_n_pages * Page::kPageSize;
+  fprintf(stderr,
+  "[ V8 ] new_capacity size: %d\ntotal capacity size: %d\nMaximumCapacity size: %d\n",
+  new_capacity, static_cast<int>(TotalCapacity()), MaximumCapacity());
   if (to_space_.GrowTo(new_capacity)) {
     // Only grow from space if we managed to grow to-space.
     if (!from_space_.GrowTo(new_capacity)) {
