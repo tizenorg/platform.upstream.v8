@@ -1368,6 +1368,10 @@ bool NewSpace::GrowOnePage() {
 
 void NewSpace::Shrink() {
   int new_capacity = Max(InitialTotalCapacity(), 2 * SizeAsInt());
+  //Overwrite new_capacity to shrink to initial capacity
+  //if shrink_new_space_to_initial_capacity flag is set
+  if (FLAG_shrink_new_space_to_initial_capacity)
+      new_capacity = InitialTotalCapacity();
   int rounded_new_capacity = RoundUp(new_capacity, Page::kPageSize);
   if (rounded_new_capacity < TotalCapacity() &&
       to_space_.ShrinkTo(rounded_new_capacity)) {
