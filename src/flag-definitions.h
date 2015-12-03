@@ -305,16 +305,9 @@ DEFINE_BOOL(use_write_barrier_elimination, true,
 DEFINE_INT(max_inlining_levels, 5, "maximum number of inlining levels")
 DEFINE_INT(max_inlined_source_size, 600,
            "maximum source size in bytes considered for a single inlining")
-#if defined(V8_TARGET_ARCH_ARM) || defined(V8_TARGET_ARCH_ARM64)
-  #define DEFAULT_MAX_INLINED_NODES 98
-  #define DEFAULT_MAX_INLINED_NODES_CUMULATIVE 196
-#else
-  #define DEFAULT_MAX_INLINED_NODES 196
-  #define DEFAULT_MAX_INLINED_NODES_CUMULATIVE 400
-#endif
-DEFINE_INT(max_inlined_nodes, DEFAULT_MAX_INLINED_NODES,
+DEFINE_INT(max_inlined_nodes, 196,
            "maximum number of AST nodes considered for a single inlining")
-DEFINE_INT(max_inlined_nodes_cumulative, DEFAULT_MAX_INLINED_NODES_CUMULATIVE,
+DEFINE_INT(max_inlined_nodes_cumulative, 400,
            "maximum cumulative number of AST nodes considered for inlining")
 DEFINE_BOOL(loop_invariant_code_motion, true, "loop invariant code motion")
 DEFINE_BOOL(fast_math, true, "faster (but maybe less accurate) math functions")
