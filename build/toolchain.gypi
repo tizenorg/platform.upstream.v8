@@ -244,6 +244,10 @@
                   [ 'arm_version==7', {
                     'cflags': ['-march=armv7-a',],
                   }],
+                  [ 'arm_version==7 and (building_for_tizen_mobile==1 \
+                     or building_for_tizen_tv==1)', {
+                    'cflags_cc+': ['-O3',],
+                  }],
                   [ 'arm_version==7 or arm_version=="default"', {
                     'conditions': [
                       [ 'arm_fpu!="default"', {
