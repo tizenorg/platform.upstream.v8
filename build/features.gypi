@@ -67,8 +67,10 @@
 
     # Set to 1 to enable building with wasm prototype.
     'v8_wasm%': 0,
+
     # SRUK performance patches
     'sruk_json_cache': 'true',
+    'sruk_inline_tuning': 'true',
 
     # Enable/disable JavaScript API accessors.
     'v8_js_accessors%': 0,
@@ -113,6 +115,7 @@
       }],
       ['v8_wasm!=0', {
         'defines': ['V8_WASM',],
+
       }],
       ['v8_js_accessors!=0', {
         'defines': ['V8_JS_ACCESSORS'],
@@ -120,6 +123,9 @@
       # SRUK performance patches
       [ 'v8_target_arch=="arm" and sruk_json_cache=="true"', {
         'defines': ['SRUK_JSON_CACHE'],
+      }],
+      [ 'v8_target_arch=="arm" and sruk_inline_tuning=="true"', {
+        'defines': ['SRUK_INLINE_TUNING',],
       }],
     ],  # conditions
     'configurations': {

@@ -303,12 +303,18 @@ DEFINE_BOOL(use_local_allocation_folding, false, "only fold in basic blocks")
 DEFINE_BOOL(use_write_barrier_elimination, true,
             "eliminate write barriers targeting allocations in optimized code")
 DEFINE_INT(max_inlining_levels, 5, "maximum number of inlining levels")
+
+#ifdef SRUK_INLINE_TUNING
+// defined locally in hydrogen.cc
+#else
 DEFINE_INT(max_inlined_source_size, 600,
            "maximum source size in bytes considered for a single inlining")
 DEFINE_INT(max_inlined_nodes, 196,
            "maximum number of AST nodes considered for a single inlining")
 DEFINE_INT(max_inlined_nodes_cumulative, 400,
            "maximum cumulative number of AST nodes considered for inlining")
+#endif
+
 DEFINE_BOOL(loop_invariant_code_motion, true, "loop invariant code motion")
 DEFINE_BOOL(fast_math, true, "faster (but maybe less accurate) math functions")
 DEFINE_BOOL(collect_megamorphic_maps_from_stub_cache, true,

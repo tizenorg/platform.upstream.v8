@@ -8385,9 +8385,12 @@ void HOptimizedGraphBuilder::TraceInline(Handle<JSFunction> target,
   }
 }
 
-
 static const int kNotInlinable = 1000000000;
-
+#ifdef SRUK_INLINE_TUNING
+static int FLAG_max_inlined_source_size = 600;
+static int FLAG_max_inlined_nodes = 196;
+static int FLAG_max_inlined_nodes_cumulative = 400;
+#endif
 
 int HOptimizedGraphBuilder::InliningAstSize(Handle<JSFunction> target) {
   if (!FLAG_use_inlining) return kNotInlinable;
@@ -8442,6 +8445,13 @@ bool HOptimizedGraphBuilder::TryInline(Handle<JSFunction> target,
       top_info()->closure()->context()->native_context()) {
     return false;
   }
+#ifdef SRUK_INLINE_TUNING
+  bool special = GetSampleCount() > 3 ? true : false;
+  if (special) {
+    FLAG_max_inlined_nodes = 98;
+    FLAG_max_inlined_nodes_cumulative = 196;
+  }
+#endif
   int nodes_added = InliningAstSize(target);
   if (nodes_added == kNotInlinable) return false;
 
@@ -8480,8 +8490,18 @@ bool HOptimizedGraphBuilder::TryInline(Handle<JSFunction> target,
   // Always inline small methods (<= 10 nodes).
   if (inlined_count_ > Min(FLAG_max_inlined_nodes_cumulative,
                            kUnlimitedMaxInlinedNodesCumulative)) {
+#ifdef SRUK_INLINE_TUNING
+    if (inlined_count_ > kUnlimitedMaxInlinedNodesCumulative
+        || target->shared()->code()->instruction_size() > 1250
+        || nodes_added > 75
+        || special) {
+      TraceInline(target, caller, "cumulative AST node limit reached");
+      return false;
+    }
+#else
     TraceInline(target, caller, "cumulative AST node limit reached");
     return false;
+#endif
   }
 
   // Parse and allocate variables.

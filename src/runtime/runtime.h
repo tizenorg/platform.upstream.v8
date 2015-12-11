@@ -1339,6 +1339,14 @@ class JsonStringifyCacheManager {
 };
 #endif
 
+#if defined(SRUK_INLINE_TUNING) && !defined(SRUK_JSON_CACHE)
+#error "Patch Dependent"
+#endif
+
+#ifdef SRUK_INLINE_TUNING
+extern uint32_t GetSampleCount();
+#endif
+
 }  // namespace internal
 }  // namespace v8
 

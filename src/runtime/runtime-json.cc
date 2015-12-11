@@ -18,6 +18,11 @@
 namespace v8 {
 namespace internal {
 
+#ifdef SRUK_INLINE_TUNING
+static uint32_t sample_count_ = 0;
+uint32_t GetSampleCount() { return sample_count_; }
+#endif
+
 RUNTIME_FUNCTION(Runtime_QuoteJSONString) {
   HandleScope scope(isolate);
   CONVERT_ARG_HANDLE_CHECKED(String, string, 0);
@@ -95,6 +100,9 @@ RUNTIME_FUNCTION(Runtime_EnterSimpleLoop) {
 #ifdef SRUK_JSON_CACHE
   FLAG_json_simple_loop = true;
 #endif
+#ifdef SRUK_INLINE_TUNING
+  sample_count_++;
+#endif
   return Smi::FromInt(0);
 }
 
@@ -107,6 +115,9 @@ RUNTIME_FUNCTION(Runtime_ExitSimpleLoop) {
   JsonParseCacheManager::Get()->Clear(isolate);
   JsonStringifyCacheManager::Get()->Clear(isolate);
   if (cnt++ > 4) FLAG_json_compiler_hint = false;
+#endif
+#ifdef SRUK_INLINE_TUNING
+  sample_count_++;
 #endif
   return Smi::FromInt(0);
 }
