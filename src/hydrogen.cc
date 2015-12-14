@@ -4499,6 +4499,111 @@ bool HOptimizedGraphBuilder::BuildGraph() {
 }
 
 
+class HReduceStackChecksPhase : public HPhase {
+ public:
+  explicit HReduceStackChecksPhase(HGraph* graph) : HPhase("", graph) { }
+  void Run();
+ private:
+  DISALLOW_COPY_AND_ASSIGN(HReduceStackChecksPhase);
+};
+
+
+static bool is_safe(HInstruction* instr) {
+  switch (instr->opcode()) {
+    case HValue::kAdd:
+    case HValue::kBitwise:
+    case HValue::kBoundsCheck:
+    case HValue::kBlockEntry:
+    case HValue::kChange:
+    case HValue::kCheckHeapObject:
+    case HValue::kCheckMaps:
+    case HValue::kConstant:
+    case HValue::kDiv:
+    case HValue::kLoadKeyed:
+    case HValue::kLoadNamedField:
+    case HValue::kMod:
+    case HValue::kMul:
+    case HValue::kSar:
+    case HValue::kSeqStringSetChar:
+    case HValue::kShl:
+    case HValue::kShr:
+    case HValue::kSimulate:
+    case HValue::kStoreKeyed:
+    case HValue::kStoreNamedField:
+    case HValue::kSub:
+    case HValue::kUnaryMathOperation:
+      return true;
+    default:
+      return false;
+  }
+}
+
+
+static bool is_safe(HInstruction* beg, HInstruction* end) {  // [beg, end)
+  HInstruction* instr = beg;
+  while (instr && instr != end) {
+    if (!is_safe(instr))
+      return false;
+    instr = instr->next();
+  }
+  return true;
+}
+
+
+static bool check_loop_increment(
+    HBasicBlock* block,
+    HCompareNumericAndBranch* comp) {
+  DCHECK(block);
+  DCHECK(comp);
+  // Check that the loop counter is incremented.
+  HInstruction* instr = block->last();
+  int i = 0;
+  const int kSearchLength = 4;
+  while (instr && i++ < kSearchLength) {
+    if (instr->IsAdd()) {
+      HAdd* add = HAdd::cast(instr);
+      HUseIterator it(add->uses());
+      if (!it.Done()) {
+        HValue* use = it.value();
+        if (use->IsPhi() && use == add->left() && use == comp->left())
+          return true;
+      }
+      break;
+    }
+    instr = instr->previous();
+  }
+  return false;
+}
+
+
+void HReduceStackChecksPhase::Run() {
+  const ZoneList<HBasicBlock*>* blocks = graph()->blocks();
+  for (int i = 0; i < blocks->length(); i++) {
+    HBasicBlock* current = blocks->at(i);
+    if (!current->IsLoopHeader())
+      continue;
+    HLoopInformation* loop_info = current->current_loop();
+    if (!loop_info->loop_header()->last()->IsCompareNumericAndBranch())
+      continue;
+    HStackCheck* stack_check = loop_info->stack_check();
+    if (!stack_check || !stack_check->IsLinked())
+      continue;
+    const ZoneList<HBasicBlock*>* loop_blocks = loop_info->blocks();
+    if (loop_blocks->length() != 3)
+      continue;  // Only check simple loops.
+    HBasicBlock* stack_check_block = stack_check->block();
+    if (stack_check_block != loop_info->GetLastBackEdge())
+      continue;
+    HCompareNumericAndBranch* comp =
+      HCompareNumericAndBranch::cast(loop_info->loop_header()->last());
+    if (!check_loop_increment(stack_check_block, comp))
+      continue;
+    if (is_safe(stack_check->next(), stack_check->block()->last()))
+      stack_check->Eliminate();
+  }
+}
+
+
 bool HGraph::Optimize(BailoutReason* bailout_reason) {
   OrderBlocks();
   AssignDominators();
@@ -4577,6 +4682,8 @@ bool HGraph::Optimize(BailoutReason* bailout_reason) {
   if (FLAG_array_bounds_checks_hoisting) Run<HBoundsCheckHoistingPhase>();
   if (FLAG_array_index_dehoisting) Run<HDehoistIndexComputationsPhase>();
   if (FLAG_dead_code_elimination) Run<HDeadCodeEliminationPhase>();
+
+  Run<HReduceStackChecksPhase>();
 
   RestoreActualValues();
 
