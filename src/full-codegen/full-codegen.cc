@@ -971,9 +971,96 @@ void FullCodeGenerator::VisitWhileStatement(WhileStatement* stmt) {
 
 
 void FullCodeGenerator::VisitForStatement(ForStatement* stmt) {
+
   Comment cmnt(masm_, "[ ForStatement");
   // Do not insert break location as we do it below.
   SetStatementPosition(stmt, SKIP_BREAK);
+
+#ifdef SRUK_JSON_CACHE
+  bool simple_loop = false;
+  do {
+    ExpressionStatement* expr_stmt;
+    Expression* expr;
+    Assignment* assign;
+
+    if (!FLAG_json_compiler_hint || loop_depth_ != 0) break;
+    if (!stmt->init() || !stmt->body() || !stmt->cond() || !stmt->next()) break;
+    if (!stmt->init()->IsBlock() || !stmt->body()->IsBlock()) break;
+    if (stmt->cond()->IsBlock() || stmt->next()->IsBlock()) break;
+
+    // body
+    Block* block1 = stmt->body()->AsBlock();
+    if (block1->statements()->length() != 1) break;
+    if (!block1->statements()->at(0)->IsBlock()) break;
+
+    block1 = block1->statements()->at(0)->AsBlock();
+//    if (!block1->is_initializer_block()) break;
+    if (!block1->statements()->at(0)->IsExpressionStatement()) break;
+    expr_stmt = block1->statements()->at(0)->AsExpressionStatement();
+    expr = expr_stmt->expression();
+    if (!expr->IsAssignment()) break;
+
+    assign = expr->AsAssignment();
+    if (assign->op() != Token::INIT_VAR) break;
+    if (!assign->target()->IsVariableProxy()) break;
+    if (assign->target()->AsVariableProxy()->var()->mode() != VAR) break;
+    if (!assign->value()->IsCall()) break;
+    Call* call = assign->value()->AsCall();
+    if (!call->expression()->IsProperty()) break;
+    Property* prop = call->expression()->AsProperty();
+    if (!prop->obj()->IsVariableProxy() || !prop->key()->IsLiteral()) break;
+    if (prop->obj()->AsVariableProxy()->var()->mode() != DYNAMIC_GLOBAL)
+      break;
+    Handle<String> obj_string = Handle<String>::cast(
+                               prop->obj()->AsVariableProxy()->var()->name());
+    if (!String::Equals(obj_string, isolate()->factory()->JSON_string()))
+      break;
+    Literal* lit = prop->key()->AsLiteral();
+    if (!lit->value()->IsString()) break;
+    Handle<String> key_string = Handle<String>::cast(lit->value());
+    if (!String::Equals(key_string, isolate()->factory()->parse_string()) &&
+      !String::Equals(key_string, isolate()->factory()->stringify_string()))
+      break;
+    ZoneList<Expression*>* args = call->arguments();
+    if (args->length() != 1) break;
+    if (!args->at(0)->IsVariableProxy()) break;
+    if (args->at(0)->AsVariableProxy()->var()->mode() != VAR) break;
+
+    // init
+    Block* block0 = stmt->init()->AsBlock();
+    if (block0->statements()->length() != 1) break;
+//    if (!block0->is_initializer_block()) break;
+    if (!block0->statements()->at(0)->IsExpressionStatement()) break;
+    expr_stmt = block0->statements()->at(0)->AsExpressionStatement();
+    expr = expr_stmt->expression();
+    if (!expr->IsAssignment()) break;
+    assign = expr->AsAssignment();
+    if (assign->op() != Token::INIT_VAR) break;
+    if (!assign->target()->IsVariableProxy()) break;
+    if (!assign->value()->IsLiteral()) break;
+    if (assign->target()->AsVariableProxy()->var()->mode() != VAR) break;
+
+    // cond
+    if (!stmt->cond()->IsCompareOperation()) break;
+    CompareOperation* comp = stmt->cond()->AsCompareOperation();
+    if (!comp->left()->IsVariableProxy()) break;
+    if (comp->left()->AsVariableProxy()->var()->mode() != VAR) break;
+    if (!comp->right()->IsLiteral()) break;
+
+    // next
+    if (!stmt->next()->IsExpressionStatement()) break;
+    expr_stmt = stmt->next()->AsExpressionStatement();
+    expr = expr_stmt->expression();
+    if (!expr->IsCountOperation()) break;
+    CountOperation* count = expr->AsCountOperation();
+    if (!count->expression()->IsVariableProxy()) break;
+    if (count->expression()->AsVariableProxy()->var()->mode() != VAR) break;
+    simple_loop = true;
+  } while (false);
+  if (simple_loop) {
+    __ CallRuntime(Runtime::kEnterSimpleLoop, 0);
+  }
+#endif
 
   Label test, body;
 
@@ -1016,6 +1103,13 @@ void FullCodeGenerator::VisitForStatement(ForStatement* stmt) {
   PrepareForBailoutForId(stmt->ExitId(), NO_REGISTERS);
   __ bind(loop_statement.break_label());
   decrement_loop_depth();
+
+#ifdef SRUK_JSON_CACHE
+  if (simple_loop) {
+    __ CallRuntime(Runtime::kExitSimpleLoop, 0);
+  }
+#endif
+
 }
 
 

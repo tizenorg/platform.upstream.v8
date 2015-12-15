@@ -2242,6 +2242,10 @@ bool Isolate::Init(Deserializer* des) {
 
   if (!FLAG_inline_new) heap_.DisableInlineAllocation();
 
+#ifdef SRUK_JSON_CACHE
+  FLAG_json_compiler_hint = false;
+#endif
+
   return true;
 }
 

@@ -9,6 +9,9 @@
 #include "src/objects.h"
 #include "src/unicode.h"
 #include "src/zone.h"
+#ifdef SRUK_JSON_CACHE
+#include "src/heap/heap.h"
+#endif
 
 namespace v8 {
 namespace internal {
@@ -357,6 +360,8 @@ namespace internal {
 #define FOR_EACH_INTRINSIC_JSON(F) \
   F(QuoteJSONString, 1, 1)         \
   F(BasicJSONStringify, 1, 1)      \
+  F(EnterSimpleLoop, 0, 1) /* SRUK_JSON_CACHE */    \
+  F(ExitSimpleLoop, 0, 1)  /* SRUK_JSON_CACHE */    \
   F(ParseJson, 1, 1)
 
 
@@ -1241,6 +1246,98 @@ class DeclareGlobalsEvalFlag : public BitField<bool, 0, 1> {};
 class DeclareGlobalsNativeFlag : public BitField<bool, 1, 1> {};
 STATIC_ASSERT(LANGUAGE_END == 3);
 class DeclareGlobalsLanguageMode : public BitField<LanguageMode, 2, 2> {};
+
+#ifdef SRUK_JSON_CACHE
+class JsonParseCacheManager {
+ public:
+  static JsonParseCacheManager* Get() {
+    if (!mgr_) mgr_ = new JsonParseCacheManager();
+    return mgr_;
+  }
+
+  virtual ~JsonParseCacheManager() {
+    if (mgr_) {
+      delete mgr_;
+      mgr_ = NULL;
+    }
+  }
+
+  Handle<JSObject> Lookup(Isolate* isolate, Handle<String> hString);
+
+  void Enter(Isolate* isolate, String* string, Handle<Object> hObject);
+
+  void Clear(Isolate* isolate, int id = 0) {
+    JsonParseCache::Clear(isolate);
+    context_ = 0;
+    count_ = 0;
+    ready_ = false;
+    activated_ = false;
+  }
+
+  bool Activated() { return activated_; }
+
+ private:
+  JsonParseCacheManager() : context_(0), count_(0),
+                            ready_(0), activated_(false) {}
+
+  Context* context_;
+  int32_t count_;
+  bool ready_;
+  bool activated_;
+  String* string_;
+  Map* string_map_;
+  int32_t length_;
+  Map* map_;
+  static const int kSourceThreshold = 5000;
+  static const int kCountThreshold = 300;
+  static JsonParseCacheManager* mgr_;
+};
+
+class JsonStringifyCacheManager {
+ public:
+  static JsonStringifyCacheManager* Get() {
+    if (!mgr_) mgr_ = new JsonStringifyCacheManager();
+    return mgr_;
+  }
+
+  virtual ~JsonStringifyCacheManager() {
+    if (mgr_) {
+      delete mgr_;
+      mgr_ = NULL;
+    }
+  }
+
+  Handle<String> Lookup(Isolate* isolate, Handle<Object> hObject);
+
+  void Enter(Isolate* isolate, Handle<Object> hObject, Handle<Object> hResult);
+
+  void Clear(Isolate* isolate, int id = 0) {
+    JsonStringifyCache::Clear(isolate);
+    context_ = 0;
+    count_ = 0;
+    ready_ = false;
+    activated_ = false;
+  }
+
+  bool Activated() { return activated_; }
+
+ private:
+  JsonStringifyCacheManager() : context_(0), count_(0),
+                            ready_(0), activated_(false) {}
+
+  Context* context_;
+  int32_t count_;
+  bool ready_;
+  bool activated_;
+  Object* object_;
+  Map* object_map_;
+  int32_t length_;
+  Map* string_map_;
+  static const int kSourceThreshold = 5000;
+  static const int kCountThreshold = 6;
+  static JsonStringifyCacheManager* mgr_;
+};
+#endif
 
 }  // namespace internal
 }  // namespace v8

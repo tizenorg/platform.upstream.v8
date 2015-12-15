@@ -22,6 +22,16 @@
 namespace v8 {
 namespace internal {
 
+#ifdef SRUK_JSON_CACHE
+  #define SRUK_JSON_PARSE_CACHE_HELP(V) \
+    V(FixedArray, json_parse_cache, JsonParseCache)
+  #define SRUK_JSON_STRINGIFY_CACHE_HELP(V) \
+    V(FixedArray, json_stringify_cache, JsonStringifyCache)
+#else
+  #define SRUK_JSON_PARSE_CACHE_HELP(V) /* empty */
+  #define SRUK_JSON_STRINGIFY_CACHE_HELP(V) /* empty */
+#endif
+
 // Defines all the roots in Heap.
 #define STRONG_ROOT_LIST(V)                                                    \
   V(Map, byte_array_map, ByteArrayMap)                                         \
@@ -189,8 +199,9 @@ namespace internal {
   V(JSObject, code_stub_exports_object, CodeStubExportsObject)                 \
   V(FixedArray, interpreter_table, InterpreterTable)                           \
   V(Map, bytecode_array_map, BytecodeArrayMap)                                 \
-  V(BytecodeArray, empty_bytecode_array, EmptyBytecodeArray)
-
+  V(BytecodeArray, empty_bytecode_array, EmptyBytecodeArray)                   \
+  SRUK_JSON_PARSE_CACHE_HELP(V)                                                \
+  SRUK_JSON_STRINGIFY_CACHE_HELP(V)                                            \
 
 // Entries in this list are limited to Smis and are not visited during GC.
 #define SMI_ROOT_LIST(V)                                                   \
@@ -303,6 +314,9 @@ namespace internal {
   V(minus_zero_string, "-0")                                   \
   V(Array_string, "Array")                                     \
   V(Error_string, "Error")                                     \
+  V(JSON_string, "JSON") /* SRUK_JSON_CACHE */                 \
+  V(parse_string, "parse") /* SRUK_JSON_CACHE */               \
+  V(stringify_string, "stringify") /* SRUK_JSON_CACHE */       \
   V(RegExp_string, "RegExp")                                   \
   V(anonymous_string, "anonymous")
 
@@ -2643,6 +2657,29 @@ class DescriptorLookupCache {
   DISALLOW_COPY_AND_ASSIGN(DescriptorLookupCache);
 };
 
+#ifdef SRUK_JSON_CACHE
+class JsonParseCache {
+ public:
+  static Handle<JSObject> Lookup(Isolate* isolate);
+  static void Enter(Isolate* isolate, Handle<Object> hObject);
+  static void Clear(Isolate* isolate);
+  static const int kCacheSize = 1;
+ private:
+  static const int kArrayEntriesPerCacheEntry = 1;
+  static const int kJSObjectOffset = 0;
+};
+
+class JsonStringifyCache {
+ public:
+  static Handle<String> Lookup(Isolate* isolate);
+  static void Enter(Isolate* isolate, Handle<Object> hObject);
+  static void Clear(Isolate* isolate);
+  static const int kCacheSize = 1;
+ private:
+  static const int kArrayEntriesPerCacheEntry = 1;
+  static const int kStringOffset = 0;
+};
+#endif
 
 // Abstract base class for checking whether a weak object should be retained.
 class WeakObjectRetainer {

@@ -1416,6 +1416,13 @@ void Heap::MarkCompactPrologue() {
   RegExpResultsCache::Clear(string_split_cache());
   RegExpResultsCache::Clear(regexp_multiple_cache());
 
+#ifdef SRUK_JSON_CACHE
+  if (FLAG_json_parse_cache)
+    JsonParseCacheManager::Get()->Clear(isolate_);
+  if (FLAG_json_stringify_cache)
+    JsonStringifyCacheManager::Get()->Clear(isolate_);
+#endif
+
   isolate_->compilation_cache()->MarkCompactPrologue();
 
   CompletelyClearInstanceofCache();
@@ -2690,6 +2697,11 @@ void Heap::CreateInitialObjects() {
   set_regexp_multiple_cache(*factory->NewFixedArray(
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
 
+#ifdef SRUK_JSON_CACHE
+  set_json_parse_cache(*factory->NewFixedArray(JsonParseCache::kCacheSize, TENURED));
+  set_json_stringify_cache(*factory->NewFixedArray(JsonStringifyCache::kCacheSize, TENURED));
+#endif
+
   // Allocate cache for external strings pointing to native source code.
   set_natives_source_cache(
       *factory->NewFixedArray(Natives::GetBuiltinsCount()));
@@ -2831,6 +2843,62 @@ bool Heap::RootCanBeTreatedAsConstant(RootListIndex root_index) {
          !InNewSpace(root(root_index));
 }
 
+#ifdef SRUK_JSON_CACHE
+void JsonParseCache::Clear(Isolate* isolate) {
+  if (!isolate) return;
+  FixedArray* cache = isolate->heap()->json_parse_cache();
+  for (int i = 0; i < kCacheSize; i++) {
+    cache->set(i, Smi::FromInt(0));
+  }
+}
+
+void JsonParseCache::Enter(Isolate* isolate, Handle<Object> hObject) {
+  if (!isolate) return;
+  FixedArray* cache = isolate->heap()->json_parse_cache();
+  Object* obj = Object::cast(*hObject);
+  int index = kJSObjectOffset & (kCacheSize - 1);
+  cache->set(index, obj);
+}
+
+Handle<JSObject> JsonParseCache::Lookup(Isolate* isolate) {
+  if (!isolate) Handle<JSObject>::null();
+  FixedArray* cache = isolate->heap()->json_parse_cache();
+  if (cache->get(kJSObjectOffset)->IsJSObject()) {
+    Object* prob = cache->get(kJSObjectOffset);
+    Handle<JSObject> hObject(JSObject::cast(prob), isolate);
+    return hObject;
+  }
+  return Handle<JSObject>::null();
+}
+
+void JsonStringifyCache::Clear(Isolate* isolate) {
+  if (!isolate) return;
+  FixedArray* cache = isolate->heap()->json_stringify_cache();
+  for (int i = 0; i < kCacheSize; i++) {
+    cache->set(i, Smi::FromInt(0));
+  }
+}
+
+void JsonStringifyCache::Enter(Isolate* isolate, Handle<Object> hObject) {
+  if (!isolate) return;
+  FixedArray* cache = isolate->heap()->json_stringify_cache();
+  Object* obj = *hObject;
+  int index = kStringOffset & (kCacheSize - 1);
+  cache->set(index, obj);
+}
+
+Handle<String> JsonStringifyCache::Lookup(Isolate* isolate) {
+  if (!isolate) Handle<String>::null();
+  FixedArray* cache = isolate->heap()->json_stringify_cache();
+  if (cache->get(kStringOffset)->IsString()) {
+    Object* prob = cache->get(kStringOffset);
+    Handle<String> hObject(String::cast(prob), isolate);
+    return hObject;
+  }
+  return Handle<String>::null();
+}
+
+#endif
 
 int Heap::FullSizeNumberStringCacheLength() {
   // Compute the size of the number string cache based on the max newspace size.
