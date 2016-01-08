@@ -270,8 +270,20 @@ function StringReplace(search, replace) {
     }
 
     if (search.global) {
+      if (subject.length > 100) {
+        %CheckRegExpSize(subject, search);
+      }
       // Global regexp search, function replace.
-      return StringReplaceGlobalRegExpWithFunction(subject, search, replace);
+      if (subject.length > 8000) {
+        var str = %GlobalRegExpWithFunctionCacheLookup(subject, search, replace);
+        if (IS_STRING(str))
+          return str;
+      }
+      var res = StringReplaceGlobalRegExpWithFunction(subject, search, replace);
+      if (subject.length > 8000) {
+        %GlobalRegExpWithFunctionCacheEnter(subject, search, replace, res);
+      }
+      return res;
     }
     // Non-global regexp search, function replace.
     return StringReplaceNonGlobalRegExpWithFunction(subject, search, replace);

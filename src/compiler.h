@@ -716,7 +716,12 @@ class CompilationPhase BASE_EMBEDDED {
   DISALLOW_COPY_AND_ASSIGN(CompilationPhase);
 };
 
-}  // namespace internal
-}  // namespace v8
+
+bool IterativeOperations();
+void SetIterativeOperations();
+void ClearIterativeOperations(Isolate* isolate);
+base::TimeTicks IterativeOperationsTag();
+
+} }  // namespace v8::internal
 
 #endif  // V8_COMPILER_H_

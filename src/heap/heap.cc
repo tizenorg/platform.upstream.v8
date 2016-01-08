@@ -41,7 +41,7 @@
 #include "src/v8.h"
 #include "src/v8threads.h"
 #include "src/vm-state-inl.h"
-
+#include "src/base/smart-pointers.h"
 namespace v8 {
 namespace internal {
 
@@ -2696,6 +2696,8 @@ void Heap::CreateInitialObjects() {
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
   set_regexp_multiple_cache(*factory->NewFixedArray(
       RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
+  set_regexp_with_function_cache(*factory->NewFixedArray(
+      RegExpResultsCache::kRegExpResultsCacheSize, TENURED));
 
 #ifdef SRUK_JSON_CACHE
   set_json_parse_cache(*factory->NewFixedArray(JsonParseCache::kCacheSize, TENURED));
@@ -2988,6 +2990,145 @@ void RegExpResultsCache::Enter(Isolate* isolate, Handle<String> key_string,
 void RegExpResultsCache::Clear(FixedArray* cache) {
   for (int i = 0; i < kRegExpResultsCacheSize; i++) {
     cache->set(i, Smi::FromInt(0));
+  }
+}
+
+
+Object* RegExpResultsCache::LookupString(Heap* heap, String* key_string,
+                        Object* key_pattern, JSFunction* replace) {
+  FixedArray* cache = heap->regexp_with_function_cache();
+  uint32_t hash = key_string->Hash();
+  uint32_t index = ((hash & (kRegExpResultsCacheSize - 1)) &
+      ~(kArrayEntriesPerCacheEntry - 1));
+  Object* res = cache->get(index + kResultOffset);
+
+  // load result object and checking
+  if (res == Smi::FromInt(0)) {
+    index = (index + kArrayEntriesPerCacheEntry) &
+      (kRegExpResultsCacheSize - 1);
+    res = cache->get(index + kResultOffset);
+  }
+  if (res == Smi::FromInt(0) || !res->IsString()) {
+    return Smi::FromInt(0);
+  }
+
+  // check subject string
+  Object *obj;
+  if ((obj = cache->get(index + kStringOffset))->IsString()) {
+    String *subject = String::cast(obj);
+    if (!subject->IsInternalizedString() ||
+        subject->length() != key_string->length() ||
+        subject->Hash() != hash)
+      return Smi::FromInt(0);
+  } else {
+    return Smi::FromInt(0);
+  }
+
+  // check regexp data fixed array
+  bool flags = false;
+  if (key_pattern->IsFixedArray()) {
+    if (!FixedArray::cast(key_pattern)->get(1)->IsString())
+      return Smi::FromInt(0);
+    String *pattern = String::cast(FixedArray::cast(key_pattern)->get(1));
+    int patternLen = pattern->length();
+    if (pattern->IsOneByteRepresentation() &&
+        patternLen < RegExpResultsCache::kMaxRegExpLength) {
+      char currArray[2*RegExpResultsCache::kMaxRegExpLength];
+      for (int i = 0; i < patternLen; i++)
+        currArray[i] = pattern->Get(i);
+      currArray[patternLen] = '\0';
+      if ((obj = cache->get(index + kPatternOffset))->IsFixedArray()) {
+        if (!FixedArray::cast(obj)->get(1)->IsString())
+          return Smi::FromInt(0);
+        String *pattern2 = String::cast(FixedArray::cast(obj)->get(1));
+        int patternLen2 = pattern2->length();
+        char prevArray[2*RegExpResultsCache::kMaxRegExpLength];
+        if (patternLen == patternLen2 &&
+            pattern2->IsOneByteRepresentation() &&
+            patternLen2 < RegExpResultsCache::kMaxRegExpLength) {
+          for (int i = 0; i < patternLen2; i++)
+            prevArray[i] = pattern2->Get(i);
+          prevArray[patternLen2] = '\0';
+          if (strcmp(currArray, prevArray) == 0)
+            flags = true;
+        }
+      }
+    }
+  }
+  if (!flags)
+    return Smi::FromInt(0);
+
+  // check replace js function
+  if (!replace->IsJSFunction())
+    return Smi::FromInt(0);
+  SharedFunctionInfo* info = replace->shared();
+  int start = info->start_position();
+  int length = info->end_position() - start;
+  int expected_nof_properties = info->expected_nof_properties();
+  int function_token_position = info->function_token_position();
+  int is_expression = info->is_expression();
+  if (info->HasSourceCode() && length == 16) {
+    String* source = String::cast(Script::cast(info->script())->source());
+    base::SmartArrayPointer<char> source_string =
+      source->ToCString(DISALLOW_NULLS,
+          FAST_STRING_TRAVERSAL, start, length, NULL);
+    if ((obj = cache->get(index + kArrayOffset))->IsJSFunction()) {
+      SharedFunctionInfo* info = JSFunction::cast(obj)->shared();
+      if (start == info->start_position() &&
+          length == (info->end_position() - info->start_position()) &&
+          expected_nof_properties == info->expected_nof_properties() &&
+          function_token_position == info->function_token_position() &&
+          is_expression == info->is_expression() &&
+          info->HasSourceCode()) {
+            String* source2 =
+              String::cast(Script::cast(info->script())->source());
+            base::SmartArrayPointer<char> source_string2 =
+              source2->ToCString(DISALLOW_NULLS,
+                  FAST_STRING_TRAVERSAL, start, length, NULL);
+            if (strcmp(source_string.get(), source_string2.get()) == 0)
+              return res;
+      }
+    }
+  }
+  return Smi::FromInt(0);
+}
+
+
+void RegExpResultsCache::EnterString(Heap* heap, String* key_string,
+                   Object* key_pattern, JSFunction* replace, String* result) {
+  static bool isInitialised = false;
+  FixedArray* cache;
+  cache = heap->regexp_with_function_cache();
+  if (!isInitialised) {
+    Clear(cache);
+    isInitialised = true;
+  }
+  uint32_t hash = key_string->Hash();
+  uint32_t index = ((hash & (kRegExpResultsCacheSize - 1)) &
+      ~(kArrayEntriesPerCacheEntry - 1));
+  if (cache->get(index + kStringOffset) == Smi::FromInt(0)) {
+    cache->set(index + kStringOffset, key_string);
+    cache->set(index + kPatternOffset, key_pattern);
+    cache->set(index + kArrayOffset, replace);
+    cache->set(index + kResultOffset, result);
+  } else {
+    uint32_t index2 =
+        ((index + kArrayEntriesPerCacheEntry) & (kRegExpResultsCacheSize - 1));
+    if (cache->get(index2 + kStringOffset) == Smi::FromInt(0)) {
+      cache->set(index2 + kStringOffset, key_string);
+      cache->set(index2 + kPatternOffset, key_pattern);
+      cache->set(index2 + kArrayOffset, replace);
+      cache->set(index2 + kResultOffset, result);
+    } else {
+      cache->set(index2 + kStringOffset, Smi::FromInt(0));
+      cache->set(index2 + kPatternOffset, Smi::FromInt(0));
+      cache->set(index2 + kArrayOffset, Smi::FromInt(0));
+      cache->set(index2 + kResultOffset, Smi::FromInt(0));
+      cache->set(index + kStringOffset, key_string);
+      cache->set(index + kPatternOffset, key_pattern);
+      cache->set(index + kArrayOffset, replace);
+      cache->set(index + kResultOffset, result);
+    }
   }
 }
 

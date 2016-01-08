@@ -202,6 +202,7 @@ namespace internal {
   V(BytecodeArray, empty_bytecode_array, EmptyBytecodeArray)                   \
   SRUK_JSON_PARSE_CACHE_HELP(V)                                                \
   SRUK_JSON_STRINGIFY_CACHE_HELP(V)                                            \
+  V(FixedArray, regexp_with_function_cache, RegExpWithFunctionCache)
 
 // Entries in this list are limited to Smis and are not visited during GC.
 #define SMI_ROOT_LIST(V)                                                   \
@@ -2694,6 +2695,16 @@ class RegExpResultsCache {
   static void Enter(Isolate* isolate, Handle<String> key_string,
                     Handle<Object> key_pattern, Handle<FixedArray> value_array,
                     ResultsCacheType type);
+  static Object* LookupString(Heap* heap,
+                         String* key_string,
+                         Object* key_pattern,
+                         JSFunction* replace);
+  static void EnterString(Heap* heap,
+                     String* key_string,
+                     Object* key_pattern,
+                     JSFunction* replace,
+                     String* result);
+  static const int kMaxRegExpLength = 10;
   static void Clear(FixedArray* cache);
   static const int kRegExpResultsCacheSize = 0x100;
 
@@ -2702,6 +2713,7 @@ class RegExpResultsCache {
   static const int kStringOffset = 0;
   static const int kPatternOffset = 1;
   static const int kArrayOffset = 2;
+  static const int kResultOffset = 3;
 };
 
 

@@ -561,7 +561,10 @@ namespace internal {
   F(MaterializeRegExpLiteral, 4, 1)            \
   F(RegExpExecMultiple, 4, 1)                  \
   F(RegExpExecReThrow, 4, 1)                   \
-  F(IsRegExp, 1, 1)
+  F(IsRegExp, 1, 1)                            \
+  F(CheckRegExpSize, 2, 1)                     \
+  F(GlobalRegExpWithFunctionCacheLookup, 3, 1) \
+  F(GlobalRegExpWithFunctionCacheEnter, 4, 1)
 
 
 #define FOR_EACH_INTRINSIC_SCOPES(F)       \

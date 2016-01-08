@@ -1184,5 +1184,128 @@ RUNTIME_FUNCTION(Runtime_IsRegExp) {
   CONVERT_ARG_CHECKED(Object, obj, 0);
   return isolate->heap()->ToBoolean(obj->IsJSRegExp());
 }
-}  // namespace internal
-}  // namespace v8
+
+static bool iterative_operations = false;
+static int iterative_operations_confidence = 0;
+static base::TimeTicks iterative_operationsTag =
+                                   base::TimeTicks::FromInternalValue(0);
+
+bool IterativeOperations() {
+  return iterative_operations;
+}
+
+
+void ClearIterativeOperations(Isolate* isolate) {
+  if (iterative_operations && isolate) {
+    RegExpResultsCache::Clear(isolate->heap()->regexp_with_function_cache());
+  }
+  iterative_operations_confidence = 0;
+  iterative_operations = false;
+}
+
+
+base::TimeTicks IterativeOperationsTag() {
+  return iterative_operationsTag;
+}
+
+
+RUNTIME_FUNCTION(Runtime_CheckRegExpSize) {
+  HandleScope handles(isolate);
+  DCHECK(args.length() == 2);
+  CONVERT_ARG_HANDLE_CHECKED(String, subject, 0);
+  CONVERT_ARG_HANDLE_CHECKED(JSRegExp, search, 1);
+  const int kLimitLower = 100;
+  const int kLimitUpper = 10000;
+  const int kMinConfidence = 8;
+  bool badCond = false;
+
+  if (subject->length() > kLimitUpper) {
+    static int preLength = 0;
+    if (search->data() && search->data()->IsFixedArray()
+      && FixedArray::cast(search->data())->get(1)
+      && FixedArray::cast(search->data())->get(1)->IsString()) {
+      Handle<String> key0 = handle(String::cast(
+                              FixedArray::cast(search->data())->get(1)));
+      Handle<String> key1 = isolate->factory()->
+                              NewStringFromStaticChars("\\b\\w+\\b");
+      if (!key0->Equals(*key1)) badCond = true;
+    }
+    if (!badCond && preLength != subject->length()
+        && ++iterative_operations_confidence >= kMinConfidence) {
+      iterative_operationsTag = base::TimeTicks::Now();
+      iterative_operations = true;
+    }
+    preLength = subject->length();
+  } else if (subject->length() > kLimitLower) {
+    badCond = true;
+  }
+  if (badCond) {
+    if (iterative_operations) ClearIterativeOperations(isolate);
+    iterative_operations_confidence = 0;
+    iterative_operations = false;
+  }
+  return Smi::FromInt(0);
+}
+
+
+RUNTIME_FUNCTION(Runtime_GlobalRegExpWithFunctionCacheLookup) {
+  HandleScope handles(isolate);
+  DCHECK(args.length() == 3);
+  CONVERT_ARG_HANDLE_CHECKED(String, subject, 0);
+  CONVERT_ARG_HANDLE_CHECKED(JSRegExp, search, 1);
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, replace, 2);
+
+  if (!IterativeOperations())
+    return Smi::FromInt(-1);
+
+  if (!subject->IsInternalizedString())
+    return Smi::FromInt(-1);
+
+  Handle<Object> cached_answer(
+      RegExpResultsCache::LookupString(isolate->heap(),
+                                       *subject, search->data(),
+                                       *replace),
+      isolate);
+
+  if (*cached_answer != Smi::FromInt(0)) {
+    return *cached_answer;
+  }
+
+  return Smi::FromInt(-1);
+}
+
+
+RUNTIME_FUNCTION(Runtime_GlobalRegExpWithFunctionCacheEnter) {
+  HandleScope handles(isolate);
+  DCHECK(args.length() == 4);
+  CONVERT_ARG_HANDLE_CHECKED(String, subject, 0);
+  CONVERT_ARG_HANDLE_CHECKED(JSRegExp, search, 1);
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, replace, 2);
+  CONVERT_ARG_HANDLE_CHECKED(String, res, 3);
+
+  if (!IterativeOperations())
+    return Smi::FromInt(-1);
+
+  if (!subject->IsInternalizedString())
+    return Smi::FromInt(-1);
+
+  String *pattern = String::cast(FixedArray::cast(search->data())->get(1));
+  int patternLen = pattern->length();
+  if (patternLen < RegExpResultsCache::kMaxRegExpLength
+      && pattern->IsOneByteRepresentation()) {
+      char currArray[2*RegExpResultsCache::kMaxRegExpLength];
+      for (int i = 0; i < patternLen; i++)
+        currArray[i] = pattern->Get(i);
+      currArray[patternLen] = '\0';
+    if (strcmp(currArray, "\\b\\w+\\b") == 0) {
+      RegExpResultsCache::EnterString(isolate->heap(), *subject,
+                                 search->data(), *replace, *res);
+      return Smi::FromInt(0);
+    }
+  }
+
+  return Smi::FromInt(-1);
+}
+
+}
+}  // namespace v8::internal
