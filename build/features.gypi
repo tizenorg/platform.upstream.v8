@@ -71,13 +71,13 @@
     # SRUK performance patches
     'sruk_json_cache': 'true',
     'sruk_inline_tuning': 'true',
-
     # Enable/disable JavaScript API accessors.
     'v8_js_accessors%': 0,
 
     # SRUK performance patches
     'sruk_eval_cache': 'true',
     'sruk_for_in_loop': 'true',
+    'sruk_remove_math_const_array': 'true',    # js files
 
   },
   'target_defaults': {
@@ -138,6 +138,9 @@
       }],
       [ 'v8_target_arch=="arm" and sruk_for_in_loop=="true"', {
         'defines': ['SRUK_FOR_IN_LOOP',],
+      }],
+      [ 'v8_target_arch=="arm" and sruk_remove_math_const_array=="true"', {
+        'defines': ['SRUK_REMOVE_MATH_CONST_ARRAY',],
       }],
 
     ],  # conditions

@@ -29,6 +29,7 @@ namespace fdlibm {
 inline double scalbn(double x, int y) { return _scalb(x, y); }
 #endif  // _MSC_VER
 
+#ifndef SRUK_REMOVE_MATH_CONST_ARRAY
 const double MathConstants::constants[] = {
     6.36619772367581382433e-01,   // invpio2    0
     1.57079632673412561417e+00,   // pio2_1     1
@@ -97,6 +98,7 @@ const double MathConstants::constants[] = {
     5.84962487220764160156e-01,   // dp_h      64
     1.35003920212974897128e-08    // dp_l      65
 };
+#endif
 
 
 // Table of constants for 2/pi, 396 Hex digits (476 decimal) of 2/pi

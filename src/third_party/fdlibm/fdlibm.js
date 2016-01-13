@@ -23,7 +23,10 @@
 // rempio2result is used as a container for return values of %RemPiO2. It is
 // initialized to a two-element Float64Array during genesis.
 
-var kMath;
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+// #else
+// var kMath;
+// #endif
 var rempio2result;
 
 (function(global, utils) {
@@ -47,15 +50,28 @@ utils.Import(function(from) {
 
 // -------------------------------------------------------------------
 
-define INVPIO2 = kMath[0];
-define PIO2_1  = kMath[1];
-define PIO2_1T = kMath[2];
-define PIO2_2  = kMath[3];
-define PIO2_2T = kMath[4];
-define PIO2_3  = kMath[5];
-define PIO2_3T = kMath[6];
-define PIO4    = kMath[32];
-define PIO4LO  = kMath[33];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define INVPIO2 = 6.36619772367581382433e-01;
+define PIO2_1  = 1.57079632673412561417;
+define PIO2_1T = 6.07710050650619224932e-11;
+define PIO2_2  = 6.07710050630396597660e-11;
+define PIO2_2T = 2.02226624879595063154e-21;
+define PIO2_3  = 2.02226624871116645580e-21;
+define PIO2_3T = 8.47842766036889956997e-32;
+define PIO4    = 7.85398163397448278999e-01;
+define PIO4LO  = 3.06161699786838301793e-17;
+// #else
+// define INVPIO2 = kMath[0];
+// define PIO2_1  = kMath[1];
+// define PIO2_1T = kMath[2];
+// define PIO2_2  = kMath[3];
+// define PIO2_2T = kMath[4];
+// define PIO2_3  = kMath[5];
+// define PIO2_3T = kMath[6];
+// define PIO4    = kMath[32];
+// define PIO4LO  = kMath[33];
+// #endif
+
 
 // Compute k and r such that x - k*pi/2 = r where |r| < pi/4. For
 // precision, r is returned as two values y0 and y1 such that r = y0 + y1
@@ -267,9 +283,25 @@ endmacro
 // Set returnTan to 1 for tan; -1 for cot.  Anything else is illegal
 // and will cause incorrect results.
 //
-macro KTAN(x)
-kMath[19+x]
-endmacro
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define T00 = 3.33333333333334091986e-01;
+define T01 = 1.33333333333201242699e-01;
+define T02 = 5.39682539762260521377e-02;
+define T03 = 2.18694882948595424599e-02;
+define T04 = 8.86323982359930005737e-03;
+define T05 = 3.59207910759131235356e-03;
+define T06 = 1.45620945432529025516e-03;
+define T07 = 5.88041240820264096874e-04;
+define T08 = 2.46463134818469906812e-04;
+define T09 = 7.81794442939557092300e-05;
+define T10 = 7.14072491382608190305e-05;
+define T11 = -1.85586374855275456654e-05;
+define T12 = 2.59073051863633712884e-05;
+// #else
+// macro KTAN(x)
+// kMath[19+x]
+// endmacro
+// #endif
 
 function KernelTan(x, y, returnTan) {
   var z;
@@ -312,13 +344,24 @@ function KernelTan(x, y, returnTan) {
   // Break x^5 * (T1 + x^2*T2 + ...) into
   // x^5 * (T1 + x^4*T3 + ... + x^20*T11) +
   // x^5 * (x^2 * (T2 + x^4*T4 + ... + x^22*T12))
-  var r = KTAN(1) + w * (KTAN(3) + w * (KTAN(5) +
-                    w * (KTAN(7) + w * (KTAN(9) + w * KTAN(11)))));
-  var v = z * (KTAN(2) + w * (KTAN(4) + w * (KTAN(6) +
-                         w * (KTAN(8) + w * (KTAN(10) + w * KTAN(12))))));
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+  var r = T01 + w * (T03 + w * (T05 +
+                w * (T07 + w * (T09 + w * T11))));
+  var v = z * (T02 + w * (T04 + w * (T06 +
+                     w * (T08 + w * (T10 + w * T12)))));
+// #else
+// var r = KTAN(1) + w * (KTAN(3) + w * (KTAN(5) +
+//                   w * (KTAN(7) + w * (KTAN(9) + w * KTAN(11)))));
+// var v = z * (KTAN(2) + w * (KTAN(4) + w * (KTAN(6) +
+//                         w * (KTAN(8) + w * (KTAN(10) + w * KTAN(12))))));
+// #endif
   var s = z * x;
   r = y + z * (s * (r + v) + y);
-  r = r + KTAN(0) * s;
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+  r = r + T00 * s;
+// #else
+// r = r + KTAN(0) * s;
+// #endif
   w = x + r;
   if (ix >= 0x3fe59428) {
     return (1 - ((hx >> 30) & 2)) *
@@ -451,12 +494,26 @@ function MathTan(x) {
 //
 //       See HP-15C Advanced Functions Handbook, p.193.
 //
-define LN2_HI    = kMath[34];
-define LN2_LO    = kMath[35];
-define TWO_THIRD = kMath[36];
-macro KLOG1P(x)
-(kMath[37+x])
-endmacro
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define LN2_HI = 6.93147180369123816490e-01;
+define LN2_LO = 1.90821492927058770002e-10;
+define TWO_THIRD = 6.666666666666666666e-01;
+define LP1 = 6.666666666666735130e-01;
+define LP2 = 3.999999999940941908e-01;
+define LP3 = 2.857142874366239149e-01;
+define LP4 = 2.222219843214978396e-01;
+define LP5 = 1.818357216161805012e-01;
+define LP6 = 1.531383769920937332e-01;
+define LP7 = 1.479819860511658591e-01;
+// #else
+// define LN2_HI    = kMath[34];
+// define LN2_LO    = kMath[35];
+// define TWO_THIRD = kMath[36];
+// macro KLOG1P(x)
+// (kMath[37+x])
+// endmacro
+// #endif
+
 // 2^54
 define TWO54 = 18014398509481984;
 
@@ -538,9 +595,14 @@ function MathLog1p(x) {
 
   var s = f / (2 + f); 
   var z = s * s;
-  var R = z * (KLOG1P(0) + z * (KLOG1P(1) + z *
-              (KLOG1P(2) + z * (KLOG1P(3) + z *
-              (KLOG1P(4) + z * (KLOG1P(5) + z * KLOG1P(6)))))));
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+  var R = z * (LP1 + z * (LP2 + z * (LP3 + z * (LP4 +
+          z * (LP5 + z * (LP6 + z * LP7))))));
+// #else
+// var R = z * (KLOG1P(0) + z * (KLOG1P(1) + z *
+//             (KLOG1P(2) + z * (KLOG1P(3) + z *
+//             (KLOG1P(4) + z * (KLOG1P(5) + z * KLOG1P(6)))))));
+// #endif
   if (k === 0) {
     return f - (hfsq - s * (hfsq + R));
   } else {
@@ -637,11 +699,21 @@ function MathLog1p(x) {
 //      For IEEE double 
 //          if x > 7.09782712893383973096e+02 then expm1(x) overflow
 //
-define KEXPM1_OVERFLOW = kMath[44];
-define INVLN2          = kMath[45];
-macro KEXPM1(x)
-(kMath[46+x])
-endmacro
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define KEXPM1_OVERFLOW = 7.09782712893383973096e+02;
+define INVLN2 = 1.44269504088896338700;
+define EXPM1_1 = -3.33333333333331316428e-02;
+define EXPM1_2 =  1.58730158725481460165e-03;
+define EXPM1_3 = -7.93650757867487942473e-05;
+define EXPM1_4 =  4.00821782732936239552e-06;
+define EXPM1_5 = -2.01099218183624371326e-07;
+// #else
+// define KEXPM1_OVERFLOW = kMath[44];
+// define INVLN2          = kMath[45];
+// macro KEXPM1(x)
+// (kMath[46+x])
+// endmacro
+// #endif
 
 function MathExpm1(x) {
   x = x * 1;  // Convert to number.
@@ -701,8 +773,13 @@ function MathExpm1(x) {
   // x is now in primary range
   var hfx = 0.5 * x;
   var hxs = x * hfx;
-  var r1 = 1 + hxs * (KEXPM1(0) + hxs * (KEXPM1(1) + hxs *
-                     (KEXPM1(2) + hxs * (KEXPM1(3) + hxs * KEXPM1(4)))));
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+  var r1 = 1 + hxs * (EXPM1_1 + hxs * (EXPM1_2 + hxs *
+                     (EXPM1_3 + hxs * (EXPM1_4 + hxs * EXPM1_5))));
+// #else
+// var r1 = 1 + hxs * (KEXPM1(0) + hxs * (KEXPM1(1) + hxs *
+//                    (KEXPM1(2) + hxs * (KEXPM1(3) + hxs * KEXPM1(4)))));
+// #endif
   t = 3 - r1 * hfx;
   var e = hxs * ((r1 - t) / (6 - x * t));
   if (k === 0) {  // c is 0
@@ -760,7 +837,11 @@ function MathExpm1(x) {
 //      sinh(x) is |x| if x is +Infinity, -Infinity, or NaN.
 //      only sinh(0)=0 is exact for finite x.
 //
-define KSINH_OVERFLOW = kMath[51];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define KSINH_OVERFLOW = 710.4758600739439;
+// #else
+// define KSINH_OVERFLOW = kMath[51];
+// #endif
 define TWO_M28 = 3.725290298461914e-9;  // 2^-28, empty lower half
 define LOG_MAXD = 709.7822265625;  // 0x40862e42 00000000, empty lower half
 
@@ -812,7 +893,11 @@ function MathSinh(x) {
 //      cosh(x) is |x| if x is +INF, -INF, or NaN.
 //      only cosh(0)=1 is exact for finite x.
 //
-define KCOSH_OVERFLOW = kMath[51];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define KCOSH_OVERFLOW = 710.4758600739439;
+// #else
+// define KCOSH_OVERFLOW = kMath[51];
+// #endif
 
 function MathCosh(x) {
   x = x * 1;  // Convert to number.
@@ -870,9 +955,15 @@ function MathCosh(x) {
 //      log10(10**N) = N  for N=0,1,...,22.
 //
 
-define IVLN10 = kMath[52];
-define LOG10_2HI = kMath[53];
-define LOG10_2LO = kMath[54];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define IVLN10 = 4.34294481903251816668e-01;
+define LOG10_2HI = 3.01029995663611771306e-01;
+define LOG10_2LO = 3.69423907715893078616e-13;
+// #else
+// define IVLN10 = kMath[52];
+// define LOG10_2HI = kMath[53];
+// define LOG10_2LO = kMath[54];
+// #endif
 
 function MathLog10(x) {
   x = x * 1;  // Convert to number.
@@ -920,18 +1011,40 @@ function MathLog10(x) {
 // log2(x) = w1 + w2
 // where w1 has 53-24 = 29 bits of trailing zeroes.
 
-define DP_H = kMath[64];
-define DP_L = kMath[65];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define DP_H = 5.84962487220764160156e-01;
+define DP_L = 1.35003920212974897128e-08;
+// #else
+// define DP_H = kMath[64];
+// define DP_L = kMath[65];
+// #endif
 
 // Polynomial coefficients for (3/2)*(log2(x) - 2*s - 2/3*s^3)
-macro KLOG2(x)
-(kMath[55+x])
-endmacro
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define LOG2_1 = 5.99999999999994648725e-01;
+define LOG2_2 = 4.28571428578550184252e-01;
+define LOG2_3 = 3.33333329818377432918e-01;
+define LOG2_4 = 2.72728123808534006489e-01;
+define LOG2_5 = 2.30660745775561754067e-01;
+define LOG2_6 = 2.06975017800338417784e-01;
+// #else
+// macro KLOG2(x)
+// (kMath[55+x])
+// endmacro
+// #endif
+
 
 // cp = 2/(3*ln(2)). Note that cp_h + cp_l is cp, but with more accuracy.
-define CP = kMath[61];
-define CP_H = kMath[62];
-define CP_L = kMath[63];
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+define CP = 9.61796693925975554329e-01;
+define CP_H = 9.61796700954437255859e-01;
+define CP_L = -7.02846165095275826516e-09;
+// #else
+// define CP = kMath[61];
+// define CP_H = kMath[62];
+// define CP_L = kMath[63];
+// #endif
+
 // 2^53
 define TWO53 = 9007199254740992; 
 
@@ -996,8 +1109,13 @@ function MathLog2(x) {
 
   // Compute log2(ax)
   var s2 = ss * ss;
-  var r = s2 * s2 * (KLOG2(0) + s2 * (KLOG2(1) + s2 * (KLOG2(2) + s2 * (
-                     KLOG2(3) + s2 * (KLOG2(4) + s2 * KLOG2(5))))));
+// #ifdef SRUK_REMOVE_MATH_CONST_ARRAY
+  var r = s2 * s2 * (LOG2_1 + s2 * (LOG2_2 + s2 * (LOG2_3 + s2 * (
+                     LOG2_4 + s2 * (LOG2_5 + s2 * LOG2_6)))));
+// #else
+// var r = s2 * s2 * (KLOG2(0) + s2 * (KLOG2(1) + s2 * (KLOG2(2) + s2 * (
+//                    KLOG2(3) + s2 * (KLOG2(4) + s2 * KLOG2(5))))));
+// #endif
   r += s_l * (s_h + ss);
   s2  = s_h * s_h;
   t_h = %_ConstructDouble(%_DoubleHi(3.0 + s2 + r), 0);

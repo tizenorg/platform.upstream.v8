@@ -1767,12 +1767,14 @@ void Genesis::InitializeBuiltinTypedArrays() {
     } while (state[0] == 0 || state[1] == 0);
   }
 
+#ifndef SRUK_REMOVE_MATH_CONST_ARRAY
   {  // Initialize trigonometric lookup tables and constants.
     const size_t num_elements = arraysize(fdlibm::MathConstants::constants);
     double* data = const_cast<double*>(fdlibm::MathConstants::constants);
     SetBuiltinTypedArray<double>(isolate(), builtins, kExternalFloat64Array,
                                  data, num_elements, "kMath");
   }
+#endif
 
   {  // Initialize a result array for rempio2 calculation
     const size_t num_elements = 2;

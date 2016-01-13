@@ -21,11 +21,13 @@ namespace fdlibm {
 
 int rempio2(double x, double* y);
 
+#ifndef SRUK_REMOVE_MATH_CONST_ARRAY
 // Constants to be exposed to builtins via Float64Array.
 struct MathConstants {
   static const double constants[66];
 };
-}  // namespace internal
-}  // namespace v8
+#endif
+}
+}  // namespace v8::internal
 
 #endif  // V8_FDLIBM_H_
