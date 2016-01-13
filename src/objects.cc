@@ -6522,7 +6522,11 @@ MaybeHandle<Object> JSReceiver::OrdinaryToPrimitive(
 //   it is no proxy, has no interceptors and needs no access checks).
 // - This object has no elements.
 // - No prototype has enumerable properties/elements.
+#ifdef SRUK_FOR_IN_LOOP
+bool JSReceiver::IsSimpleEnum(bool accessOwnPropertyOnly) {
+#else
 bool JSReceiver::IsSimpleEnum() {
+#endif
   for (PrototypeIterator iter(GetIsolate(), this,
                               PrototypeIterator::START_AT_RECEIVER);
        !iter.IsAtEnd(); iter.Advance()) {
@@ -6535,6 +6539,14 @@ bool JSReceiver::IsSimpleEnum() {
     DCHECK(!current->HasIndexedInterceptor());
     if (current->NumberOfEnumElements() > 0) return false;
     if (current != this && enum_length != 0) return false;
+#ifdef SRUK_FOR_IN_LOOP
+    if (accessOwnPropertyOnly
+        && current == this
+        && (current->NumberOfEnumElements() == 0)
+        && enum_length > 0 ) {
+      return true ;
+    }
+#endif
   }
   return true;
 }

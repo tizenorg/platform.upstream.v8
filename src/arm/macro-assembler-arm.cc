@@ -3542,6 +3542,31 @@ void MacroAssembler::CheckEnumCache(Register null_value, Label* call_runtime) {
 }
 
 
+#ifdef SRUK_FOR_IN_LOOP
+void MacroAssembler::CheckEnumCacheOwnProperty(Register null_value,
+                                               Label* call_runtime) {
+  Register  empty_fixed_array_value = r6;
+  LoadRoot(empty_fixed_array_value, Heap::kEmptyFixedArrayRootIndex);
+
+  mov(r2, r0);
+
+  // Check if the enum length field is properly initialized, indicating that
+  // there is an enum cache.
+  ldr(r1, FieldMemOperand(r2, HeapObject::kMapOffset));
+
+  EnumLength(r3, r1);
+  cmp(r3, Operand(Smi::FromInt(kInvalidEnumCacheSentinel)));
+  b(eq, call_runtime);
+
+  // Check that there are no elements. Register r2 contains the current JS
+  // object we've reached through the prototype chain.
+  ldr(r2, FieldMemOperand(r2, JSObject::kElementsOffset));
+  cmp(r2, empty_fixed_array_value);
+  b(ne, call_runtime);
+}
+#endif
+
+
 void MacroAssembler::TestJSArrayForAllocationMemento(
     Register receiver_reg,
     Register scratch_reg,

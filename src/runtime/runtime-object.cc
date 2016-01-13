@@ -789,6 +789,45 @@ RUNTIME_FUNCTION(Runtime_GetPropertyNamesFast) {
 }
 
 
+RUNTIME_FUNCTION(Runtime_GetOwnPropertyNamesFast) {
+#ifdef SRUK_FOR_IN_LOOP
+  SealHandleScope shs(isolate);
+  DCHECK(args.length() == 1);
+
+  CONVERT_ARG_CHECKED(JSReceiver, raw_object, 0);
+
+  if (raw_object->IsSimpleEnum(true)) return raw_object->map();
+
+  HandleScope scope(isolate);
+  Handle<JSReceiver> object(raw_object);
+  Handle<FixedArray> content;
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+      isolate, content,
+      JSReceiver::GetKeys(object, JSReceiver::INCLUDE_PROTOS));
+
+  // Test again, since cache may have been built by preceding call.
+  if (object->IsSimpleEnum(true)) return object->map();
+
+  return *content;
+#else
+  return Smi::FromInt(-1);
+#endif
+}
+
+
+// Find the length of the prototype chain that is to be handled as one. If a
+// prototype object is hidden it is to be viewed as part of the the object it
+// is prototype for.
+static int OwnPrototypeChainLength(JSObject* obj) {
+  int count = 1;
+  for (PrototypeIterator iter(obj->GetIsolate(), obj);
+       !iter.IsAtEnd(PrototypeIterator::END_AT_NON_HIDDEN); iter.Advance()) {
+    count++;
+  }
+  return count;
+}
+
+
 // Return the names of the own named properties.
 // args[0]: object
 // args[1]: PropertyAttributes as int

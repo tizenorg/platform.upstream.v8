@@ -1421,6 +1421,9 @@ class MacroAssembler: public Assembler {
   // Expects object in r0 and returns map with validated enum cache
   // in r0.  Assumes that any other register can be used as a scratch.
   void CheckEnumCache(Register null_value, Label* call_runtime);
+#ifdef SRUK_FOR_IN_LOOP
+  void CheckEnumCacheOwnProperty(Register null_value, Label* call_runtime);
+#endif
 
   // AllocationMemento support. Arrays may have an associated
   // AllocationMemento object that can be checked for in order to pretransition

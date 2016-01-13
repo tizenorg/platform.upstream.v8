@@ -77,6 +77,7 @@
 
     # SRUK performance patches
     'sruk_eval_cache': 'true',
+    'sruk_for_in_loop': 'true',
 
   },
   'target_defaults': {
@@ -134,6 +135,9 @@
 
       [ 'v8_target_arch=="arm" and sruk_eval_cache=="true"', {
         'defines': ['SRUK_EVAL_CACHE',],
+      }],
+      [ 'v8_target_arch=="arm" and sruk_for_in_loop=="true"', {
+        'defines': ['SRUK_FOR_IN_LOOP',],
       }],
 
     ],  # conditions

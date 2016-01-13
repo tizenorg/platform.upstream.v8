@@ -1815,7 +1815,11 @@ class JSReceiver: public HeapObject {
       LanguageMode language_mode = SLOPPY);
 
   // Tests for the fast common case for property enumeration.
+#ifdef SRUK_FOR_IN_LOOP
+  bool IsSimpleEnum(bool accessOwnPropertyOnly = false);
+#else
   bool IsSimpleEnum();
+#endif
 
   // Returns the class name ([[Class]] property in the specification).
   String* class_name();

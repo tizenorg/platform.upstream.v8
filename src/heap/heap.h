@@ -326,6 +326,8 @@ namespace internal {
   V(JSON_string, "JSON") /* SRUK_JSON_CACHE */                 \
   V(parse_string, "parse") /* SRUK_JSON_CACHE */               \
   V(stringify_string, "stringify") /* SRUK_JSON_CACHE */       \
+  V(apply_string, "apply")  /* SRUK_FOR_IN_LOOP */             \
+  V(hasOwnProperty_string, "hasOwnProperty")  /* SRUK_FOR_IN_LOOP */ \
   V(RegExp_string, "RegExp")                                   \
   V(anonymous_string, "anonymous")
 

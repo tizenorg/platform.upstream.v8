@@ -182,6 +182,7 @@ namespace internal {
   V(kRegisterDidNotMatchExpectedRoot, "Register did not match expected root")  \
   V(kRegisterWasClobbered, "Register was clobbered")                           \
   V(kRememberedSetPointerInNewSpace, "Remembered set pointer is in new space") \
+  V(kRestParameter, "Rest parameters")                                         \
   V(kReturnAddressNotFoundInFrame, "Return address not found in frame")        \
   V(kScriptContext, "Allocation of script context")                            \
   V(kSmiAdditionOverflow, "Smi addition overflow")                             \

@@ -911,6 +911,9 @@ Parser::Parser(ParseInfo* info)
   // Parser - this makes sure that Isolate is not accidentally accessed via
   // ParseInfo during background parsing.
   DCHECK(!info->script().is_null() || info->source_stream() != NULL);
+#ifdef SRUK_FOR_IN_LOOP
+      forin_id_ = 0;
+#endif
   set_allow_lazy(info->allow_lazy_parsing());
   set_allow_natives(FLAG_allow_natives_syntax || info->is_native());
   set_allow_harmony_sloppy(FLAG_harmony_sloppy);
@@ -1917,8 +1920,27 @@ Statement* Parser::ParseSubStatement(ZoneList<const AstRawString*>* labels,
       return ParseWhileStatement(labels, ok);
 
     case Token::FOR:
+#ifdef SRUK_FOR_IN_LOOP
+      {
+        Statement* stmt = ParseForStatement(labels, ok);
+        if (stmt) {
+          if (stmt->IsForInStatement()) {
+            forin_id_++;
+          } else if (stmt->IsBlock()) {
+            Block *st = reinterpret_cast< Block *>(stmt);
+            int length = st->statements()->length();
+            bool isBlock = st->statements()->first()->IsBlock();
+            bool isForIn = st->statements()->last()->IsForInStatement();
+            if (length == 2 && isBlock && isForIn) {
+              forin_id_++;
+            }
+          }
+        }
+        return stmt;
+      }
+#else
       return ParseForStatement(labels, ok);
-
+#endif
     case Token::CONTINUE:
     case Token::BREAK:
     case Token::RETURN:
@@ -4077,6 +4099,11 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
     function_name = ast_value_factory()->empty_string();
   }
 
+#ifdef SRUK_FOR_IN_LOOP
+      forin_id_ = 0;
+#endif
+
+  int num_parameters = 0;
   // Function declarations are function scoped in normal mode, so they are
   // hoisted. In harmony block scoping mode they are block scoped, so they
   // are not hoisted.
@@ -4314,7 +4341,16 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
   if (should_be_used_once_hint)
     function_literal->set_should_be_used_once_hint();
 
+  if (scope->has_rest_parameter()) {
+    // TODO(caitp): enable optimization of functions with rest params
+    function_literal->set_dont_optimize_reason(kRestParameter);
+  }
   if (fni_ != NULL && should_infer_name) fni_->AddFunction(function_literal);
+#ifdef SRUK_FOR_IN_LOOP
+  if (forin_id_ > 0 && function_literal) {
+    function_literal->SetNumForInLoops(forin_id_);
+  }
+#endif
   return function_literal;
 }
 

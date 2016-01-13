@@ -913,6 +913,10 @@ class Parser : public ParserBase<ParserTraits> {
   // https://codereview.chromium.org/7003030/ ).
   static const int kMaxNumFunctionLocals = 4194303;  // 2^22-1
 
+#ifdef SRUK_FOR_IN_LOOP
+  int forin_id_ ;
+#endif
+
   // Returns NULL if parsing failed.
   FunctionLiteral* ParseProgram(Isolate* isolate, ParseInfo* info);
 

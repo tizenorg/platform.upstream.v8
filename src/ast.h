@@ -2551,6 +2551,11 @@ class FunctionLiteral final : public Expression {
     dont_optimize_reason_ = reason;
   }
 
+#ifdef SRUK_FOR_IN_LOOP
+  void SetNumForInLoops(int n) { numForInLoops_ = n; }
+  int GetNumForInLoops() { return numForInLoops_; }
+#endif
+
  protected:
   FunctionLiteral(Zone* zone, const AstRawString* name,
                   AstValueFactory* ast_value_factory, Scope* scope,
@@ -2571,6 +2576,9 @@ class FunctionLiteral final : public Expression {
         materialized_literal_count_(materialized_literal_count),
         expected_property_count_(expected_property_count),
         parameter_count_(parameter_count),
+#ifdef SRUK_FOR_IN_LOOP
+        numForInLoops_(0),
+#endif
         function_token_position_(RelocInfo::kNoPosition) {
     bitfield_ = IsExpression::encode(function_type != DECLARATION) |
                 IsAnonymous::encode(function_type == ANONYMOUS_EXPRESSION) |
@@ -2596,6 +2604,9 @@ class FunctionLiteral final : public Expression {
   int materialized_literal_count_;
   int expected_property_count_;
   int parameter_count_;
+#ifdef SRUK_FOR_IN_LOOP
+  int numForInLoops_;
+#endif
   int function_token_position_;
 
   unsigned bitfield_;

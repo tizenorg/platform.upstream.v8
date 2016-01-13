@@ -454,6 +454,7 @@ namespace internal {
   F(HasProperty, 2, 1)                               \
   F(IsPropertyEnumerable, 2, 1)                      \
   F(GetPropertyNamesFast, 1, 1)                      \
+  F(GetOwnPropertyNamesFast, 1, 1) /*SRUK_FOR_IN_LOOP*/ \
   F(GetOwnPropertyNames, 2, 1)                       \
   F(GetOwnElementNames, 1, 1)                        \
   F(GetInterceptorInfo, 1, 1)                        \
