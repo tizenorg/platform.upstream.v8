@@ -14,6 +14,9 @@ namespace v8 {
 namespace internal {
 
 
+#define MAX_TYPEDARRAY_HEAP_SIZE (64 * MB)
+
+
 RUNTIME_FUNCTION(Runtime_ArrayBufferInitialize) {
   HandleScope scope(isolate);
   DCHECK(args.length() == 3);
@@ -29,6 +32,10 @@ RUNTIME_FUNCTION(Runtime_ArrayBufferInitialize) {
     THROW_NEW_ERROR_RETURN_FAILURE(
         isolate, NewRangeError(MessageTemplate::kInvalidArrayBufferLength));
   }
+  if (allocated_length >= MAX_TYPEDARRAY_HEAP_SIZE) {
+    allocated_length = MAX_TYPEDARRAY_HEAP_SIZE;  // limit heap size
+  }
+
   if (!JSArrayBuffer::SetupAllocatingData(
           holder, isolate, allocated_length, true,
           is_shared ? SharedFlag::kShared : SharedFlag::kNotShared)) {
