@@ -31,6 +31,12 @@ namespace internal {
   #define SRUK_JSON_PARSE_CACHE_HELP(V) /* empty */
   #define SRUK_JSON_STRINGIFY_CACHE_HELP(V) /* empty */
 #endif
+#ifdef SRUK_EVAL_CACHE
+  #define SRUK_EVAL_CACHE_HELP(V) \
+    V(FixedArray, eval_cache, EvalCache)
+#else
+  #define SRUK_EVAL_CACHE_HELP(V) /* empty */
+#endif
 
 // Defines all the roots in Heap.
 #define STRONG_ROOT_LIST(V)                                                    \
@@ -203,6 +209,7 @@ namespace internal {
   SRUK_JSON_PARSE_CACHE_HELP(V)                                                \
   SRUK_JSON_STRINGIFY_CACHE_HELP(V)                                            \
   V(FixedArray, regexp_with_function_cache, RegExpWithFunctionCache)           \
+  SRUK_EVAL_CACHE_HELP(V)                                                      \
   V(FixedArray, code_sharing_cache, CodeSharingCache)
 
 // Entries in this list are limited to Smis and are not visited during GC.
@@ -2731,6 +2738,20 @@ class CodeSharingCache {
   static const int kArrayEntriesPerCacheEntry = 1;
   static const int kContextOffset = 0;
 };
+
+
+#ifdef SRUK_EVAL_CACHE
+class EvalCache {
+ public:
+  static Handle<SharedFunctionInfo> Lookup(Isolate* isolate);
+  static void Enter(Isolate* isolate, Handle<SharedFunctionInfo> hSharedInfo);
+  static void Clear(Isolate* isolate);
+  static const int kCacheSize = 1;
+ private:
+  static const int kArrayEntriesPerCacheEntry = 1;
+  static const int kSharedInfoOffset = 0;
+};
+#endif
 
 
 // Abstract base class for checking whether a weak object should be retained.

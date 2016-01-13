@@ -74,6 +74,10 @@
 
     # Enable/disable JavaScript API accessors.
     'v8_js_accessors%': 0,
+
+    # SRUK performance patches
+    'sruk_eval_cache': 'true',
+
   },
   'target_defaults': {
     'conditions': [
@@ -127,6 +131,11 @@
       [ 'v8_target_arch=="arm" and sruk_inline_tuning=="true"', {
         'defines': ['SRUK_INLINE_TUNING',],
       }],
+
+      [ 'v8_target_arch=="arm" and sruk_eval_cache=="true"', {
+        'defines': ['SRUK_EVAL_CACHE',],
+      }],
+
     ],  # conditions
     'configurations': {
       'DebugBaseCommon': {

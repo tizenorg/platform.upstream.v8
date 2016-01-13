@@ -1256,6 +1256,586 @@ static Handle<SharedFunctionInfo> CompileToplevel(CompilationInfo* info) {
 }
 
 
+#ifdef SRUK_EVAL_CACHE
+EvalCacheManager* EvalCacheManager::mgr_ = NULL;
+void EvalCacheManager::PreProcess(Isolate* isolate, Handle<Context> hContext,
+      Handle<SharedFunctionInfo> hShared, int codeSize,
+      LanguageMode language_mode, int pos) {
+#if !defined(V8_TARGET_ARCH_ARM) || !defined(CAN_USE_ARMV7_INSTRUCTIONS)
+  return;
+#endif
+
+  if (codeSize != codeSize_ || isolate != isolate_ || *hContext != context_
+      || language_mode != languageMode_ || pos != scopePosition_
+      || codeSize < MaxCodeSize) {
+    Clear(isolate);
+    isolate_ = isolate;
+    context_ = *hContext;
+    codeSize_ = codeSize;
+    languageMode_ = language_mode;
+    scopePosition_ = pos;
+  } else {
+    count_++;
+  }
+  if (count_ > EvalCacheThreshold) ready_ = true;
+  if (!ready_) return;
+  hShared_ = Pop(isolate_);
+
+  if (!hShared_.is_null() && instructionIndex_ == 0) {
+    byte* constant1 = NULL;
+    Code* code1 = hShared_->code();
+    int mode_mask = RelocInfo::ModeMask(RelocInfo::CONST_POOL);
+    for (RelocIterator it(code1, mode_mask); !it.done(); it.next()) {
+      RelocInfo* rinfo = it.rinfo();
+      if (rinfo->IsInConstantPool()) {
+        constant1 = rinfo->pc();
+        break;
+      }
+    }
+    byte* constant2 = NULL;
+    Code* code2 = hShared->code();
+    for (RelocIterator it(code2, mode_mask); !it.done(); it.next()) {
+      RelocInfo* rinfo = it.rinfo();
+      if (rinfo->IsInConstantPool()) {
+        constant2 = rinfo->pc();
+        break;
+      }
+    }
+    int len1 = constant1 - code1->instruction_start();
+    int len2 = constant2 - code2->instruction_start();
+    if (len1 == len2) {
+      int delta = 0, index = -1;
+      uint32_t* array1 = reinterpret_cast<uint32_t *>
+                             (code1->instruction_start());
+      uint32_t* array2 = reinterpret_cast<uint32_t *>
+                             (code2->instruction_start());
+      for (int i = 0; i < len1 / kInt32Size ; i++) {
+        if (array1[i] != array2[i]) {
+          delta++;
+          index = i;
+        }
+      }
+      if (delta == 1 && index > 0) {
+        int32_t rd0, rs0, rd2, rs2;
+        if ((rs0 = ExtractMovImm(&array1[index], &rd0)) &&
+            (rs2 = ExtractMovImm(&array2[index], &rd2))) {
+          if (rd0 == rd2) {
+            instructionIndex_ = index;
+            pair_ = false;
+            rd_ = rd0;
+          }
+          int32_t rd1, rs1, rd3, rs3;
+          if ((rs1 = ExtractMovImm(&array1[index+1], &rd1)) &&
+              (rs3 = ExtractMovImm(&array2[index+1], &rd3))) {
+            if ((rs0 == 1) && (rs1 == 2) &&
+                (rs2 == 1) && (rs3 == 2) &&
+                (rd0 == rd1) && (rd1 == rd3)) {
+              pair_ = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  Push(isolate_, hShared);
+  if (targetString_) {
+    delete [] targetString_;
+    targetString_ = NULL;
+  }
+}
+
+
+bool EvalCacheManager::Process(Isolate* isolate, Handle<Context> hContext,
+      Handle<String> src2, LanguageMode language_mode, int pos) {
+  activated_ = false;
+  if (!ready_ || !hContext->IsNativeContext()) return false;
+  if (isolate != isolate_ || *hContext != context_ || Pop(isolate).is_null()
+    || language_mode != languageMode_ || pos != scopePosition_) {
+    Clear(isolate);
+    return false;
+  }
+  hShared_ = Pop(isolate_);
+  if (hShared_.is_null()) return false;
+
+  Handle<String> src1 = handle(String::cast(Script::cast
+                                 (hShared_->script())->source()));
+  if (src1.is_null() || src2.is_null()) return false;
+
+  int32_t oldValue = GetPropertyValue();
+  if (newPropertyNameLength_ >= MAX_NAME_LENGTH) return false;
+
+  uint8_t array[MAX_NAME_LENGTH + 1];
+  memcpy(array, newPropertyName_, newPropertyNameLength_);
+  array[newPropertyNameLength_] ='\0';
+  if (!IsMatchSemantics(src1, src2)) {
+    newPropertyNameLength_ = 0;
+    return false;
+  }
+
+  Handle<Object> value;
+  Handle<GlobalObject> global(context_->global_object());
+  Handle<String> name = isolate->factory()->InternalizeUtf8String(
+                 reinterpret_cast<const char*>(&propertyName_[0]));
+  Object::GetProperty(global, name).ToHandle(&value);
+  if (!value->IsSmi()) {
+    Clear(isolate);
+    return false;
+  }
+
+  if (numMatchedEvals_ == 0) {
+    ++numMatchedEvals_;
+    return false;
+  }
+
+  if (numMatchedEvals_ > MinMatchedEvals) {
+    Handle<Object> value =
+            handle(Smi::FromInt(newPropertyValue_), isolate_);
+    Handle<String> name = isolate->factory()->InternalizeUtf8String(
+               reinterpret_cast<const char*>(newPropertyName_));
+    Handle<Object> result;
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+    isolate, result,
+    Object::SetProperty(global, name, value, languageMode_));
+
+    Handle<Object> v2;
+    Object::GetProperty(global, name).ToHandle(&v2);
+    if (v2->IsSmi() && Smi::cast(*v2)->value() == newPropertyValue_) {
+      Handle<String> name = isolate->factory()->InternalizeUtf8String(
+               reinterpret_cast<const char*>(propertyName_));
+      ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+      isolate, result,
+      Object::SetProperty(global, name, value, languageMode_));
+
+      if (UpdateNewPropertyValue()) {
+        activated_ = true;
+        return true;
+      }
+    }
+    Clear(isolate);
+    return false;
+  }
+
+  Handle<Object> value2;
+  name = isolate->factory()->InternalizeUtf8String(
+               reinterpret_cast<const char*>(&array[0]));
+  Object::GetProperty(global, name).ToHandle(&value2);
+  if (value2->IsSmi()) {
+    if (Smi::cast(*value2)->value() == oldValue) {
+      ++numMatchedEvals_;
+      return false;
+    }
+  }
+  Clear(isolate);
+  return false;
+}
+
+
+inline static bool IsDigit(uint8_t uc) {
+  return (uc >= '0' && uc <= '9');
+}
+
+
+inline static bool IsLetter(uint8_t uc) {
+  return (uc >= 'a' && uc <= 'z') || (uc >= 'A' && uc <= 'Z');
+}
+
+
+inline static bool IsUnderScore(uint8_t uc) {
+  return (uc == '_');
+}
+
+
+static void ConsStringCopy(uint8_t* dest, Handle<String>hString) {
+  String* string = *hString;
+  uint16_t uc;
+  int length = hString->length(), n = 0;
+
+  if (string->IsSeqOneByteString()) {
+    memcpy(dest, SeqOneByteString::cast(string)->GetChars(), length);
+    dest[length] = '\0';
+    return;
+  }
+  for (int i = 0; i < length; i++) {
+    while (true) {
+      int index = i;
+      if (StringShape(string).IsCons()) {
+        ConsString* cons_string = ConsString::cast(string);
+        String* left = cons_string->first();
+        if (left->length() > index) {
+          string = left;
+        } else {
+          index -= left->length();
+          string = cons_string->second();
+        }
+      } else {
+        uc = string->Get(n++);
+        if (n >= string->length())  {
+          n = 0;
+          string = *hString;
+        }
+        break;
+      }
+    }
+    dest[i] = static_cast<uint8_t>(uc);
+  }
+  dest[length] = '\0';
+}
+
+
+bool EvalCacheManager::IsNameString(uint8_t* buff, int length, int index,
+                         int& start, int &end) {
+  uint8_t* tmp = buff + index;
+  int count = 0;
+  int limit = index > MAX_NAME_LENGTH ? MAX_NAME_LENGTH : index;
+  while (1) {
+    uint8_t ch = *tmp--;
+    if (!IsLetter(ch) && !IsDigit(ch) && !IsUnderScore(ch)) {
+      break;
+    }
+    if (++count >= limit) return false;
+  }
+  start = index - (count - 1);
+  if (!IsLetter(buff[start])) return false;
+
+  count = 0;
+  tmp = buff + index;
+  limit = (length-index) > MAX_NAME_LENGTH ? MAX_NAME_LENGTH : length;
+  while (1) {
+    uint8_t ch = *tmp++;
+    if (!IsLetter(ch) && !IsDigit(ch) && !IsUnderScore(ch)) {
+      break;
+    }
+    if (++count >= limit) return false;
+  }
+  end = index + count - 1;
+  return true;
+}
+
+
+bool EvalCacheManager::IsValueString(uint8_t* buff, int length,
+                          int index, int& start, int &end) {
+  uint8_t* tmp = buff + index;
+  int count = 0;
+  int limit = index > MAX_NAME_LENGTH ? MAX_NAME_LENGTH : index;
+  while (IsDigit(*tmp--) && (++count < limit)) {
+  }
+  start = index - (count - 1);
+
+  count = 0;
+  tmp = buff + index;
+  limit = (length-index) > MAX_NAME_LENGTH ? MAX_NAME_LENGTH : length;
+  while (IsDigit(*tmp++) && (++count < limit)) {
+  }
+  end = index + count - 1;
+
+  tmp = buff + start;
+  for (int i = start; i <= end; i++) {
+    if (!IsDigit(*tmp++)) return false;
+  }
+  uint8_t ch = buff[start-1];
+  if (IsLetter(ch)) return false;
+  if (IsLetter(buff[end+1])) return false;
+  if (ch != ' ' && ch != '=' && ch != '-') return false;
+  return true;
+}
+
+
+static bool VerifyIdentifiers(uint8_t* s1, int32_t n1, uint8_t* s2,
+                    int32_t n2, uint8_t* s3, int32_t n3, int32_t& m ) {
+  if (n3 != n1 && n3 != n2) return false;
+  int32_t count = 0;
+  if (n3 == n2) {
+    if (memcmp(s2, s3, n3) == 0) count++;
+  }
+  if (n3 == n1) {
+    if (memcmp(s1, s3, n3) == 0) count++;
+  }
+  if (count > 0) {
+    m = count;
+    return true;
+  }
+  return false;
+}
+
+
+bool EvalCacheManager::IsMatchSemantics(Handle<String> prevString,
+                        Handle<String> currString) {
+  // Match previous and current string and return true if they match
+  // semantically. Also guarantee that AST tree will match.
+
+  // Check for a flattened cons string
+  if (prevString->length() == 0 || currString->length() == 0) return false;
+  if (!prevString->IsOneByteRepresentation()
+      || !currString->IsOneByteRepresentation()) {
+      return false;
+  }
+  String* string2 = *currString;
+  int length1 = prevString->length();
+  int length2 = currString->length();
+  uint16_t uc1, uc2;
+  if (!targetString_) {
+    if ((targetString_ = NewArray<uint8_t>(length1+1)) == NULL) {
+      return false;
+    }
+    targetStringLength_ = length1;
+    ConsStringCopy(targetString_, prevString);
+  }
+  if (targetStringLength_ != length1) {
+    delete[] targetString_;
+    targetString_ = NULL;
+    return false;
+  }
+  uint8_t* buffer = NULL;
+  uint8_t* tmpBuffer = NULL;
+  base::SmartArrayPointer<uint8_t> array;
+  if (currString->IsConsString()) {
+    if ((buffer = NewArray<uint8_t>(length2+1)) == NULL) {
+      return false;
+    }
+    ConsStringCopy(buffer, currString);
+    array = base::SmartArrayPointer<uint8_t>(buffer);
+    tmpBuffer = array.get();
+  } else if (string2->IsSeqOneByteString()) {
+    tmpBuffer = SeqOneByteString::cast(string2)->GetChars();
+  } else {
+    return false;
+  }
+  newPropertyNamePosition_ = 0;
+  int nameCount = 0, valueCount = 0;
+  int32_t oldStartPos1 = 0, oldEndPos1 = 0;
+  int32_t oldStartPos2 = 0, oldEndPos2 = 0;
+  int i, j;
+  for (i = 0, j = 0; i < length1; i++, j++) {
+    uc1 = targetString_[i];
+    uc2 = tmpBuffer[j];
+    if (uc1 == uc2) { continue; }
+    int startPos1, endPos1;
+    if (IsNameString(targetString_, length1, i, startPos1, endPos1)) {
+      nameCount++;
+      int startPos2, endPos2;
+      if (!IsNameString(tmpBuffer, length2, j, startPos2, endPos2)) {
+        return false;
+      }
+      if (nameCount > 1) {
+        if (nameCount > 2) {
+          uint8_t* tmp1 = targetString_ + propertyNamePosition_;
+          uint8_t* tmp2 = targetString_ + oldStartPos1;
+          uint8_t* tmp3 = targetString_ + startPos1;
+          int32_t n1 = propertyNameLength_;
+          int32_t n2 = oldEndPos1 - oldStartPos1 + 1;
+          int32_t n3 = endPos1 - startPos1 + 1;
+          int32_t marker1;
+          if (!VerifyIdentifiers(tmp1, n1, tmp2, n2, tmp3, n3, marker1)) {
+              return false;
+          }
+          tmp1 = tmpBuffer + newPropertyNamePosition_;
+          tmp2 = tmpBuffer + oldStartPos2;
+          tmp3 = tmpBuffer + startPos2;
+          n1 = newPropertyNameLength_;
+          n2 = oldEndPos2 - oldStartPos2 + 1;
+          n3 = endPos2 - startPos2 + 1;
+          int32_t marker2;
+          if (!VerifyIdentifiers(tmp1, n1, tmp2, n2, tmp3, n3, marker2)) {
+              return false;
+          }
+          if (marker1 != marker2) {
+            return false;
+          }
+        }
+        oldStartPos1 = startPos1; oldEndPos1 = endPos1;
+        oldStartPos2 = startPos2; oldEndPos2 = endPos2;
+      } else {
+        propertyNamePosition_ = startPos1;
+        propertyNameLength_ = endPos1 - startPos1 + 1;
+        newPropertyNamePosition_ = startPos2;
+        newPropertyNameLength_ = endPos2 - startPos2 + 1;
+      }
+      i = endPos1; j = endPos2;
+    } else if (IsValueString(targetString_, length1, i, startPos1, endPos1)) {
+      valueCount++;
+      if (valueCount > 1) return false;
+      int startPos2, endPos2;
+      if (!IsValueString(tmpBuffer, length2, j, startPos2, endPos2)) {
+        return false;
+      }
+      if (targetString_[endPos1 + 1] != ' '
+          && targetString_[endPos1 + 1] != ';')
+          return false;
+      if (tmpBuffer[endPos2 + 1] != ' ' && tmpBuffer[endPos2 + 1] != ';')
+          return false;
+      int factor = 1;
+      uint8_t* tmpPtr = tmpBuffer + startPos2 -1;
+      if (tmpBuffer[startPos2 - 1] == '-') { factor = -1; tmpPtr--; }
+      uint8_t ch;
+      while ((ch = *tmpPtr--) == ' ' && (tmpPtr > tmpBuffer));
+      if (tmpPtr <= tmpBuffer || ch != '=') return false;
+      if (newPropertyNamePosition_ > 0) {
+        tmpPtr = tmpBuffer + newPropertyNamePosition_ - 1;
+        while ((ch = *tmpPtr--) == ' ' && (tmpPtr > tmpBuffer));
+        if (tmpPtr < tmpBuffer+1 || ch != 'r' || *tmpPtr-- != 'a'
+          || *tmpPtr != 'v')
+          return false;
+      } else {
+        while ((ch = *tmpPtr--) == ' ' && (tmpPtr > tmpBuffer));
+        if (tmpPtr <= tmpBuffer || !IsLetter(ch)) return false;
+        int x, y;
+        if (!IsNameString(tmpBuffer, length2, tmpPtr-tmpBuffer+1, x, y))
+            return false;
+        tmpPtr = tmpBuffer + x - 1;
+        while ((ch = *tmpPtr--) == ' ' && (tmpPtr > tmpBuffer));
+        if (tmpPtr < tmpBuffer+1 || ch != 'r' || *tmpPtr-- != 'a'
+          || *tmpPtr != 'v')
+          return false;
+        propertyNamePosition_ = x;
+        propertyNameLength_ = y - x + 1;
+        newPropertyNamePosition_ = x;
+        newPropertyNameLength_ = y - x + 1;
+      }
+      if (tmpPtr != tmpBuffer) {
+        ch = *(tmpPtr-1);
+        if (IsLetter(ch) || IsDigit(ch) || ch == '.' || ch =='_')
+            return false;
+      }
+      int len2 = endPos2- startPos2 + 1;
+      char *plate = new char[len2 + 1];
+      memcpy(plate, tmpBuffer + startPos2, len2);
+      plate[len2] = '\0';
+      newPropertyValue_ = atoi(plate);
+      if (newPropertyValue_ > (1 << 28)) return false;
+      newPropertyValue_ *= factor;
+      i = endPos1; j = endPos2;
+    } else {
+      return false;
+    }
+  }  // for loop
+  if (i != length1 || j != length2) return false;
+  if (valueCount != 1 || newPropertyNamePosition_ == 0) return false;
+  if (propertyNameLength_ >= MAX_NAME_LENGTH) return false;
+  if (propertyName_ == NULL) {
+    propertyName_ = NewArray<uint8_t>(MAX_NAME_LENGTH + 1);
+    if (propertyName_ == NULL) return false;
+  }
+  memcpy(propertyName_, targetString_ + propertyNamePosition_,
+         propertyNameLength_);
+  propertyName_[propertyNameLength_] = '\0';
+
+  if (newPropertyNameLength_ >= MAX_NAME_LENGTH) return false;
+  if (newPropertyName_ == NULL) {
+    newPropertyName_ = NewArray<uint8_t>(MAX_NAME_LENGTH + 1);
+    if (newPropertyName_ == NULL) return false;
+  }
+  memcpy(newPropertyName_, tmpBuffer + newPropertyNamePosition_,
+         newPropertyNameLength_);
+  newPropertyName_[newPropertyNameLength_] = '\0';
+
+  return true;
+}
+
+
+bool EvalCacheManager::MakeMoveImmediate(uint32_t value, int32_t rd,
+         uint32_t& out, uint32_t& out1) {
+#ifdef V8_TARGET_ARCH_ARM
+  if (!pair_) {
+    if (value >= 0x10000) return false;
+    out = ARM_MOVW_OPCODE*B20 | rd*B12 | ((value & 0xf000)*B4) |
+        (value & 0xfff);
+  } else {
+    out = ARM_MOVW_OPCODE*B20 | rd*B12 | ((value & 0xf000)*B4) |
+        (value & 0xfff);
+    value >>= 16;
+    out1 = ARM_MOVT_OPCODE*B20 | rd*B12 | ((value & 0xf000)*B4) |
+        (value & 0xfff);
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+
+int32_t EvalCacheManager::ExtractMovImm(uint32_t* op, int32_t* rd) {
+  int ret = 0;
+  Instruction* instr = reinterpret_cast<Instruction*>(op);
+  uint32_t type = instr->TypeValue();
+  if (type == 1) {
+    switch (instr->OpcodeField()) {
+      case TST: {
+        if (!instr->HasS()) {
+          Condition condf = instr->ConditionField();
+          if (condf == Condition::al) {
+            *rd = instr->RdValue();
+            ret = 1;  // movw
+          }
+        }
+        break;
+      }
+      case CMP: {
+        if (!instr->HasS()) {
+          Condition condf = instr->ConditionField();
+          if (condf == Condition::al) {
+            *rd = instr->RdValue();
+            ret = 2;  // movt
+          }
+        }
+        break;
+      }
+      case MOV: {
+        if (!instr->HasS()) {
+          Condition condf = instr->ConditionField();
+          if (condf == Condition::al) {
+            *rd = instr->RdValue();
+            ret = 3;  // mov
+          }
+        }
+        break;
+      }
+      default: break;
+    }
+  }
+  return ret;
+}
+
+
+bool EvalCacheManager::UpdateNewPropertyValue() {
+  hShared_ = Pop(isolate_);
+  if (hShared_.is_null() || instructionIndex_ == 0) return false;
+  Code* code = hShared_->code();
+  uint32_t* array = reinterpret_cast<uint32_t*>(code->instruction_start());
+  uint32_t out;
+  uint32_t out1 = array[instructionIndex_ + 1];
+  int32_t rd0;
+  int32_t rs0;
+  if ((rs0 = ExtractMovImm(&array[instructionIndex_], &rd0)) == 0) {
+    return false;
+  }
+  if (rd0 != rd_) return false;
+  int32_t rd1;
+  int32_t rs1;
+  bool pair = false;
+  if ((rs1 = ExtractMovImm(&array[instructionIndex_ + 1], &rd1))) {
+    if ((rs0 == 1) && (rs1 == 2) && (rd0 == rd1)) {
+      pair = true;
+    }
+  }
+  if ((rs0 == 3) && (rs1 == 2)) return false;
+  if (pair != pair_) return false;
+  if (!MakeMoveImmediate(
+        reinterpret_cast<uint32_t>(Smi::FromInt(newPropertyValue_)),
+        rd0, out, out1)) {
+    return false;
+  }
+
+  array[instructionIndex_] = out;
+
+  if (pair == true) {
+    array[instructionIndex_ + 1] = out1;
+  }
+  CpuFeatures::FlushICache(&array[instructionIndex_], 2*kPointerSize);
+  return true;
+}
+#endif
+
+
 MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
     Handle<String> source, Handle<SharedFunctionInfo> outer_info,
     Handle<Context> context, LanguageMode language_mode,
@@ -1273,6 +1853,20 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
   Handle<SharedFunctionInfo> shared_info;
 
   Handle<Script> script;
+#ifdef SRUK_EVAL_CACHE
+  EvalCacheManager* mgr = EvalCacheManager::GetInstance();
+  if (mgr->MaybeReady() && !maybe_shared_info.ToHandle(&shared_info)) {
+    shared_info = mgr->Pop(isolate);
+    if (mgr->Process(isolate, context, source, language_mode, line_offset)) {
+      if (shared_info->ic_age() != isolate->heap()->global_ic_age()) {
+        shared_info->ResetForNewContext(isolate->heap()->global_ic_age());
+      }
+      return isolate->factory()->NewFunctionFromSharedFunctionInfo(
+          shared_info, context, NOT_TENURED);
+    }
+  }
+#endif
+
   if (!maybe_shared_info.ToHandle(&shared_info)) {
     script = isolate->factory()->NewScript(source);
     if (!script_name.is_null()) {
@@ -1307,7 +1901,14 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
       DCHECK(is_sloppy(language_mode) ||
              is_strict(shared_info->language_mode()));
       compilation_cache->PutEval(source, outer_info, context, shared_info,
-                                 line_offset);
+                                   line_offset);
+#ifdef SRUK_EVAL_CACHE
+        if (context->IsNativeContext() && shared_info->code()
+            && shared_info->script()) {
+          mgr->PreProcess(isolate, context, shared_info,
+              shared_info->code()->body_size(), language_mode, line_offset);
+        }
+#endif
     }
   } else if (shared_info->ic_age() != isolate->heap()->global_ic_age()) {
     shared_info->ResetForNewContext(isolate->heap()->global_ic_age());

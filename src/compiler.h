@@ -807,6 +807,145 @@ class CodeShareManager {
   static CodeShareManager* manager_;
 };
 
+
+#ifdef SRUK_EVAL_CACHE
+class EvalCacheManager {
+ public:
+  enum {
+    EvalCacheThreshold = 280,
+    MinMatchedEvals = 10,
+    MAX_NAME_LENGTH = 50,
+    MaxCodeSize = 7000
+  };
+
+  static EvalCacheManager* GetInstance() {
+    if (!mgr_) mgr_ = new EvalCacheManager();
+    return mgr_;
+  }
+
+  virtual ~EvalCacheManager() {
+    if (mgr_) {
+      Clear(isolate_);
+      delete mgr_;
+      mgr_ = NULL;
+    }
+  }
+
+  void Push(Isolate* isolate, Handle<SharedFunctionInfo> hShared) {
+    EvalCache::Enter(isolate, hShared);
+  }
+
+  Handle<SharedFunctionInfo> Pop(Isolate* isolate) {
+    return EvalCache::Lookup(isolate);
+  }
+
+  bool MaybeReady() {
+    return ready_;
+  }
+
+  bool IsActivated() {
+    return activated_;
+  }
+
+  void ClearActivate() {
+    activated_ = false;
+  }
+
+  int32_t GetPropertyValue() {
+    return newPropertyValue_;
+  }
+
+  uint8_t* GetPropertyName() {
+    return propertyName_;
+  }
+
+  int32_t GetPropertyNameLength() {
+    return propertyNameLength_;
+  }
+
+  void PreProcess(Isolate* isolate, Handle<Context> hContext,
+        Handle<SharedFunctionInfo> hShared, int codeSize,
+        LanguageMode language_mode, int pos);
+
+  bool Process(Isolate* isolate, Handle<Context> hContext,
+        Handle<String> hSource, LanguageMode language_mode, int pos);
+
+  void Clear(Isolate* isolate) {
+    EvalCache::Clear(isolate);
+    isolate_ = 0;
+    count_ = 0;
+    ready_ = false;
+    activated_ = false;
+    numMatchedEvals_ = 0;
+    newPropertyNameLength_ = 0;
+    instructionIndex_ = 0;
+    if (targetString_) {
+      delete[] targetString_;
+      targetString_ = NULL;
+    }
+    if (propertyName_) {
+      delete[] propertyName_;
+      propertyName_ = NULL;
+    }
+    if (newPropertyName_) {
+      delete[] newPropertyName_;
+      newPropertyName_ = NULL;
+    }
+  }
+
+  Context* GetContext() { return context_; }
+
+  bool IsNameString(uint8_t* buff, int length, int index, int& start,
+                     int &end);
+
+  bool IsValueString(uint8_t* buff, int length, int index,
+                      int& start, int &end);
+
+ private:
+  EvalCacheManager() : isolate_(0),
+                       count_(0),
+                       ready_(0),
+                       activated_(false),
+                       targetString_(NULL),
+                       propertyName_(NULL),
+                       newPropertyName_(NULL),
+                       instructionIndex_(0) {}
+
+  bool IsMatchSemantics(Handle<String> prevString, Handle<String> currString);
+  int32_t ExtractMovImm(uint32_t* value, int32_t* rd);
+  bool MakeMoveImmediate(uint32_t value, int32_t rd,
+         uint32_t& out, uint32_t& out1);
+  bool UpdateNewPropertyValue();
+
+  Isolate* isolate_;
+  Context* context_;
+  int32_t codeSize_;
+  LanguageMode languageMode_;
+  int32_t scopePosition_;
+  int32_t count_;
+  bool ready_;
+  bool activated_;
+  uint8_t* targetString_;
+  uint8_t* propertyName_;
+  int32_t targetStringLength_;
+  int32_t propertyNamePosition_;
+  int32_t propertyNameLength_;
+  uint8_t* newPropertyName_;
+  int32_t newPropertyValue_;
+  int32_t newPropertyNamePosition_;
+  int32_t newPropertyNameLength_;
+  int32_t numMatchedEvals_;
+  int32_t instructionIndex_;
+  bool pair_;
+  int32_t rd_;
+  static const uint32_t ARM_MOV_OPCODE =  0xe3a;
+  static const uint32_t ARM_MOVW_OPCODE = 0xe30;
+  static const uint32_t ARM_MOVT_OPCODE = 0xe34;
+  Handle<SharedFunctionInfo> hShared_;
+  static EvalCacheManager* mgr_;
+};
+#endif
+
 } }  // namespace v8::internal
 
 #endif  // V8_COMPILER_H_

@@ -1422,6 +1422,9 @@ void Heap::MarkCompactPrologue() {
   if (FLAG_json_stringify_cache)
     JsonStringifyCacheManager::Get()->Clear(isolate_);
 #endif
+#ifdef SRUK_EVAL_CACHE
+  EvalCacheManager::GetInstance()->Clear(isolate_);
+#endif
 
   isolate_->compilation_cache()->MarkCompactPrologue();
 
@@ -2706,6 +2709,10 @@ void Heap::CreateInitialObjects() {
   set_code_sharing_cache(*factory->NewFixedArray(
       CodeSharingCache::kCacheSize, TENURED));
 
+#ifdef SRUK_EVAL_CACHE
+  set_eval_cache(*factory->NewFixedArray(EvalCache::kCacheSize, TENURED));
+#endif
+
   // Allocate cache for external strings pointing to native source code.
   set_natives_source_cache(
       *factory->NewFixedArray(Natives::GetBuiltinsCount()));
@@ -3172,6 +3179,36 @@ Handle<Context> CodeSharingCache::Lookup(Isolate* isolate, int offset) {
   }
   return Handle<Context>::null();
 }
+
+
+#ifdef SRUK_EVAL_CACHE
+void EvalCache::Clear(Isolate* isolate) {
+  if (!isolate) return;
+  FixedArray* cache = isolate->heap()->eval_cache();
+  for (int i = 0; i < kCacheSize; i++) {
+    cache->set(i, Smi::FromInt(0));
+  }
+}
+
+
+void EvalCache::Enter(Isolate* isolate, Handle<SharedFunctionInfo> hInfo) {
+  FixedArray* cache = isolate->heap()->eval_cache();
+  Object* obj = Object::cast(*hInfo);
+  int index = kSharedInfoOffset & (kCacheSize - 1);
+  cache->set(index, obj);
+}
+
+
+Handle<SharedFunctionInfo> EvalCache::Lookup(Isolate* isolate) {
+  FixedArray* cache = isolate->heap()->eval_cache();
+  if (cache->get(kSharedInfoOffset)->IsSharedFunctionInfo()) {
+    Object* prob = cache->get(kSharedInfoOffset);
+    Handle<SharedFunctionInfo> hInfo(SharedFunctionInfo::cast(prob), isolate);
+    return hInfo;
+  }
+  return Handle<SharedFunctionInfo>::null();
+}
+#endif
 
 
 int Heap::FullSizeNumberStringCacheLength() {
