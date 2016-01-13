@@ -2703,6 +2703,8 @@ void Heap::CreateInitialObjects() {
   set_json_parse_cache(*factory->NewFixedArray(JsonParseCache::kCacheSize, TENURED));
   set_json_stringify_cache(*factory->NewFixedArray(JsonStringifyCache::kCacheSize, TENURED));
 #endif
+  set_code_sharing_cache(*factory->NewFixedArray(
+      CodeSharingCache::kCacheSize, TENURED));
 
   // Allocate cache for external strings pointing to native source code.
   set_natives_source_cache(
@@ -3130,6 +3132,45 @@ void RegExpResultsCache::EnterString(Heap* heap, String* key_string,
       cache->set(index + kResultOffset, result);
     }
   }
+}
+
+int CodeSharingCache::kNumItems = 0x7fff;  // invalid number of items
+
+
+void CodeSharingCache::Clear(Isolate* isolate) {
+  if (!isolate || kNumItems == 0) return;
+  FixedArray* cache = isolate->heap()->code_sharing_cache();
+  for (int i = 0; i < kCacheSize; i++) {
+    cache->set(i, Smi::FromInt(0));
+  }
+  kNumItems = 0;
+}
+
+
+void CodeSharingCache::Clear(Isolate* isolate, int offset) {
+  FixedArray* cache = isolate->heap()->code_sharing_cache();
+  cache->set(offset, Smi::FromInt(0));
+}
+
+
+void CodeSharingCache::Enter(Isolate* isolate, Handle<Context> handle,
+                             int offset) {
+  FixedArray* cache = isolate->heap()->code_sharing_cache();
+  Object* obj = Object::cast(*handle);
+  int index = (offset + kContextOffset) & (kCacheSize - 1);
+  cache->set(index, obj);
+  kNumItems++;
+}
+
+
+Handle<Context> CodeSharingCache::Lookup(Isolate* isolate, int offset) {
+  FixedArray* cache = isolate->heap()->code_sharing_cache();
+  if (cache->get(offset + kContextOffset)->IsContext()) {
+    Object* prob = cache->get(offset + kContextOffset);
+    Handle<Context> hContext(Context::cast(prob), isolate);
+    return hContext;
+  }
+  return Handle<Context>::null();
 }
 
 

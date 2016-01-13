@@ -6,6 +6,7 @@
 
 #include "src/accessors.h"
 #include "src/arguments.h"
+#include "src/compiler.h"
 #include "src/frames-inl.h"
 #include "src/isolate-inl.h"
 #include "src/messages.h"
@@ -118,6 +119,19 @@ RUNTIME_FUNCTION(Runtime_DeclareGlobals) {
           isolate->factory()->NewFunctionFromSharedFunctionInfo(shared, context,
                                                                 TENURED);
       value = function;
+      if (CodeShareManager::GetInstance()->IsReady()
+          && function->code()->kind() <= Code::OPTIMIZED_FUNCTION) {
+        Handle<Object> old_value = Object::GetProperty(
+                                   global, name).ToHandleChecked();
+        if (!old_value.is_null() && old_value->IsJSFunction()) {
+          JSFunction* old_func = JSFunction::cast(*old_value);
+          if (old_func->code()->kind() <= Code::OPTIMIZED_FUNCTION
+                && old_func->shared() == function->shared()
+                && old_func->context() == function->context()) {
+             continue;
+          }
+        }
+      }
     } else {
       value = isolate->factory()->undefined_value();
     }

@@ -5400,9 +5400,14 @@ static i::Handle<i::Context> CreateEnvironment(
     if (!proxy.is_null()) {
       maybe_proxy = i::Handle<i::JSGlobalProxy>::cast(proxy);
     }
-    // Create the environment.
-    env = isolate->bootstrapper()->CreateEnvironment(
-        maybe_proxy, proxy_template, extensions);
+
+    env = i::CodeShareManager::GetInstance()->Pop(isolate);
+    if (env.is_null()) {
+      // Create the environment.
+      env = isolate->bootstrapper()->CreateEnvironment(
+          maybe_proxy, proxy_template, extensions);
+    }
+    i::CodeShareManager::GetInstance()->MarkContextNew();
 
     // Restore the access check info on the global template.
     if (!global_template.IsEmpty()) {

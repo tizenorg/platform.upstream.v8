@@ -8,6 +8,7 @@
 #include "src/counters.h"
 #include "src/factory.h"
 #include "src/objects-inl.h"
+#include "src/compiler.h"
 
 namespace v8 {
 namespace internal {
@@ -54,6 +55,8 @@ Handle<CompilationCacheTable> CompilationSubCache::GetTable(int generation) {
 
 
 void CompilationSubCache::Age() {
+  if (CodeShareManager::GetInstance()->IsReady()) return;
+
   // Don't directly age single-generation caches.
   if (generations_ == 1) {
     if (tables_[0] != isolate()->heap()->undefined_value()) {

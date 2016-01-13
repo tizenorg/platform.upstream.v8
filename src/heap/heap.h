@@ -202,7 +202,8 @@ namespace internal {
   V(BytecodeArray, empty_bytecode_array, EmptyBytecodeArray)                   \
   SRUK_JSON_PARSE_CACHE_HELP(V)                                                \
   SRUK_JSON_STRINGIFY_CACHE_HELP(V)                                            \
-  V(FixedArray, regexp_with_function_cache, RegExpWithFunctionCache)
+  V(FixedArray, regexp_with_function_cache, RegExpWithFunctionCache)           \
+  V(FixedArray, code_sharing_cache, CodeSharingCache)
 
 // Entries in this list are limited to Smis and are not visited during GC.
 #define SMI_ROOT_LIST(V)                                                   \
@@ -2714,6 +2715,21 @@ class RegExpResultsCache {
   static const int kPatternOffset = 1;
   static const int kArrayOffset = 2;
   static const int kResultOffset = 3;
+};
+
+
+class CodeSharingCache {
+ public:
+  static Handle<Context> Lookup(Isolate* isolate, int offset);
+  static void Enter(Isolate* isolate, Handle<Context> handle, int offset);
+  static void Clear(Isolate* isolate);
+  static void Clear(Isolate* isolate, int offset);
+  static const int kCacheSize = 32;
+  static int kNumItems;
+
+ private:
+  static const int kArrayEntriesPerCacheEntry = 1;
+  static const int kContextOffset = 0;
 };
 
 

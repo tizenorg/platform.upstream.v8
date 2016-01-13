@@ -1326,6 +1326,149 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
 }
 
 
+CodeShareManager* CodeShareManager::manager_ = NULL;
+
+
+void CodeShareManager::Process(
+    Isolate* isolate,
+    Handle<Context> hContext,
+    Handle<String> hSource, Handle<Object> name) {
+  if (IsActivated() && contextNew_ == 0
+      && ++intervalCount_ > expectedInterval_) {
+    CleanUp();
+    return;
+  }
+  keyIndex_++;
+  if (!contextNew_) return;
+  contextNew_ = false;
+  intervalCount_ = 0;
+  if (!IsReady() || name.is_null() || !name->IsString()
+      || hSource->IsConsString()
+      || (!hSource->IsSeqOneByteString()
+          && !hSource->IsExternalString()
+          && !hSource->IsExternalOneByteString())) {
+    numItems_ = 0;
+    activated_ = false;
+    return;
+  }
+  if (!IsActivated()) {
+    if (numItems_ == 0) {
+      isolate_ = isolate;
+      Clear();
+      isolate_ = isolate;  // save isolate ptr
+      name_ = *name;  // save name ptr
+    }
+    if (numItems_ >=  MAX_NUM_ITEMS) numItems_ = 0;
+    Element elem;
+    elem.context = *hContext;
+    elem.length = hSource->length();
+    if (hSource->IsSeqOneByteString()) {
+      elem.source = SeqOneByteString::cast(*hSource)->GetChars();
+    } else if (hSource->IsExternalOneByteString()) {
+      elem.source = ExternalOneByteString::cast(*hSource)->GetChars();
+    } else {
+      void* addr = (reinterpret_cast<uint8_t *>(*hSource) +
+                    ExternalString::kResourceOffset - kHeapObjectTag);
+      uint8_t** ptr = reinterpret_cast<uint8_t**>(addr);
+      elem.source = *ptr;
+    }
+    elem.key = keyIndex_;
+    array_[numItems_++] = elem;
+    CodeSharingCache::Enter(isolate_, hContext, numItems_-1);
+    int index = Find(elem);
+    int distance = (numItems_ - index) - 1;
+    if (index >= 0 && distance > MIN_NUM_SCRIPTS) {
+      frameOffset_ = index + 1;
+      frameLength_ = distance;
+      id_ = frameLength_ - 1;
+      for (int i = 0; i < frameOffset_; i++) {
+        CodeSharingCache::Clear(isolate_, i);
+      }
+      for (int i = frameOffset_ + frameLength_; i < numItems_; i++) {
+        CodeSharingCache::Clear(isolate_, i);
+      }
+      SetActivated();
+      expectedInterval_ = array_[frameOffset_+1].key
+                            - array_[frameOffset_].key - 1;
+    }
+  }
+  if (IsActivated()) {
+    if (++id_ >= frameLength_) id_ = 0;
+    Element elem;
+    elem.context = *hContext;
+    elem.length = hSource->length();
+    if (hSource->IsSeqOneByteString()) {
+      elem.source = SeqOneByteString::cast(*hSource)->GetChars();
+    } else if (hSource->IsExternalOneByteString()) {
+      elem.source = ExternalOneByteString::cast(*hSource)->GetChars();
+    } else {
+      void* addr = (reinterpret_cast<uint8_t *>(*hSource) +
+                  ExternalString::kResourceOffset - kHeapObjectTag);
+      uint8_t** ptr = reinterpret_cast<uint8_t**>(addr);
+      elem.source = *ptr;
+    }
+    elem.key = 0;
+    if (isolate != isolate_ || name_ != *name || Find(elem) < 0) CleanUp();
+  }
+  return;
+}
+
+
+Handle<Context> CodeShareManager::Pop(Isolate* isolate) {
+    if (IsActivated()) {
+      if (isolate != isolate_) {
+        CleanUp();
+        return Handle<Context>::null();
+      }
+      int pos = (frameOffset_ + id_);
+      Handle<Context> env = CodeSharingCache::Lookup(isolate_, pos);
+      if (!env.is_null() && isolate->context()
+          && isolate->context()->IsContext()
+          && isolate->context()->IsNativeContext()) {
+        return env;
+      } else {
+        CleanUp();
+        return Handle<Context>::null();
+      }
+    }
+    return Handle<Context>::null();
+}
+
+
+int CodeShareManager::Find(Element& elem) {
+  if (numItems_ < MIN_NUM_SCRIPTS) return -1;
+  if (!activated_) {
+    int index = -1;
+    for (int i = numItems_-2; i >= 0; i--) {
+      if (array_[i].length == elem.length
+          && (array_[i].source == elem.source
+              || !memcmp(array_[i].source, elem.source, elem.length))
+          && array_[i].context != elem.context) {
+        index = i;
+        break;
+      }
+    }
+    if (index >= 0) {
+      for (int i = 1; i < numItems_-1; i++) {
+        if ((array_[i+1].key - array_[i].key)
+          != (array_[i].key - array_[i-1].key)) {
+          return -1;
+        }
+      }
+      return index;
+    }
+  } else {
+    for (int i = frameOffset_; i < frameOffset_ + frameLength_; i++) {
+      if (array_[i].length == elem.length &&
+          !memcmp(array_[i].source, elem.source, elem.length)) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+
 Handle<SharedFunctionInfo> Compiler::CompileScript(
     Handle<String> source, Handle<Object> script_name, int line_offset,
     int column_offset, ScriptOriginOptions resource_options,
@@ -1356,6 +1499,9 @@ Handle<SharedFunctionInfo> Compiler::CompileScript(
   bool use_strong = FLAG_use_strong && !isolate->bootstrapper()->IsActive();
   LanguageMode language_mode =
       construct_language_mode(FLAG_use_strict, use_strong);
+
+  CodeShareManager::GetInstance()->Process(isolate,
+                         isolate->native_context(), source, script_name);
 
   CompilationCache* compilation_cache = isolate->compilation_cache();
 

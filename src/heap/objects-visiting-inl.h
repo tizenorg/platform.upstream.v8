@@ -426,7 +426,9 @@ void StaticMarkingVisitor<StaticVisitor>::VisitCode(Map* map,
   Heap* heap = map->GetHeap();
   Code* code = Code::cast(object);
   if (FLAG_age_code && !heap->isolate()->serializer_enabled()) {
-    code->MakeOlder(heap->mark_compact_collector()->marking_parity());
+    if (!CodeShareManager::GetInstance()->IsReady()) {
+      code->MakeOlder(heap->mark_compact_collector()->marking_parity());
+    }
   }
   code->CodeIterateBody<StaticVisitor>(heap);
 }
@@ -707,6 +709,10 @@ bool StaticMarkingVisitor<StaticVisitor>::IsFlushable(Heap* heap,
     return false;
   }
 
+  if (FLAG_age_code && CodeShareManager::GetInstance()->IsReady()) {
+    return false;
+  }
+
   return IsFlushable(heap, shared_info);
 }
 
@@ -762,6 +768,10 @@ bool StaticMarkingVisitor<StaticVisitor>::IsFlushable(
 
   // Check age of code. If code aging is disabled we never flush.
   if (!FLAG_age_code || !shared_info->code()->IsOld()) {
+    return false;
+  }
+
+  if (FLAG_age_code && CodeShareManager::GetInstance()->IsReady()) {
     return false;
   }
 

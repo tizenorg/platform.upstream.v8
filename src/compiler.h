@@ -717,10 +717,95 @@ class CompilationPhase BASE_EMBEDDED {
 };
 
 
-bool IterativeOperations();
-void SetIterativeOperations();
-void ClearIterativeOperations(Isolate* isolate);
-base::TimeTicks IterativeOperationsTag();
+extern bool IterativeOperations();
+extern void SetIterativeOperations();
+extern void ClearIterativeOperations(Isolate* isolate);
+extern base::TimeTicks IterativeOperationsTag();
+
+
+class CodeShareManager {
+ public:
+  enum {
+    MAX_NUM_ITEMS = CodeSharingCache::kCacheSize,
+    MIN_NUM_SCRIPTS = 20
+  };
+
+  struct Element {
+    Context* context;
+    const uint8_t* source;
+    int length;
+    int key;
+  };
+
+  static CodeShareManager* GetInstance() {
+    if (!manager_) manager_ = new CodeShareManager();
+    return manager_;
+  }
+
+  virtual ~CodeShareManager() {
+    if (manager_) {
+      Clear();
+      delete manager_;
+      manager_ = NULL;
+    }
+  }
+
+  void Process(Isolate* isolate, Handle<Context> handle,
+                Handle<String> source, Handle<Object> name);
+
+  Handle<Context> Pop(Isolate* isolate);
+
+  bool IsReady() { return IterativeOperations(); }
+
+  bool IsActivated() { return activated_; }
+
+  void MarkContextNew() { contextNew_ = true; }
+
+  void CleanUp() {
+    if (activated_) Clear();
+    ClearIterativeOperations(isolate_);
+    isolate_ = 0;
+  }
+
+ private:
+  CodeShareManager() : isolate_(NULL),
+                       name_(NULL),
+                       numItems_(0),
+                       intervalCount_(0),
+                       keyIndex_(0),
+                       activated_(false),
+                       contextNew_(false) {
+  }
+
+  void SetActivated() { DCHECK(!IsActivated());
+    activated_ = true;
+  }
+
+  void Clear() {
+    if (isolate_) CodeSharingCache::Clear(isolate_);
+    activated_ = false;
+    contextNew_ = false;
+    numItems_ = 0;
+    keyIndex_ = 0;
+    name_ = NULL;
+  }
+
+  int Find(Element& elem);
+
+  Isolate* isolate_;
+  Object* name_;
+  int numItems_;
+  int intervalCount_;
+  int expectedInterval_;
+  int keyIndex_;
+  bool activated_;
+  bool contextNew_;
+  int frameOffset_;
+  int frameLength_;
+  int id_;
+  Element array_[MAX_NUM_ITEMS];
+  static CodeShareManager* manager_;
+};
 
 } }  // namespace v8::internal
 
