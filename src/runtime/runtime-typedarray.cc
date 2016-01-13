@@ -14,7 +14,7 @@ namespace v8 {
 namespace internal {
 
 
-#define MAX_TYPEDARRAY_HEAP_SIZE (64 * MB)
+#define MAX_TYPEDARRAY_HEAP_SIZE (120 * MB)
 
 
 RUNTIME_FUNCTION(Runtime_ArrayBufferInitialize) {
