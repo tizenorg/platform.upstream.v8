@@ -70,7 +70,7 @@ RUNTIME_FUNCTION(Runtime_ParseJson) {
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, source,
                                      Object::ToString(isolate, object));
 #ifdef SRUK_JSON_CACHE
-  String* input;
+  String* input = nullptr;
   if (FLAG_json_parse_cache) {
     input = *source;
     if(JsonParseCacheManager::Get()->Activated()) {
