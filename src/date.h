@@ -152,6 +152,10 @@ class DateCache {
   }
 
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
   // Computes a time equivalent to the given time according
   // to ECMA 262 - 15.9.1.9.
   // The issue here is that some library calls don't work right for dates
@@ -169,6 +173,9 @@ class DateCache {
     int new_days = DaysFromYearMonth(EquivalentYear(year), month) + day - 1;
     return static_cast<int64_t>(new_days) * kMsPerDay + time_within_day_ms;
   }
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
   // Returns an equivalent year in the range [2008-2035] matching
   // - leap year,
