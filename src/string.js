@@ -13,6 +13,7 @@ var ArrayIndexOf;
 var ArrayJoin;
 var GlobalRegExp = global.RegExp;
 var GlobalString = global.String;
+var GlobalArray = global.Array;
 var InternalArray = utils.InternalArray;
 var InternalPackedArray = utils.InternalPackedArray;
 var RegExpExec;
@@ -615,8 +616,19 @@ function StringSplitJS(separator, limit) {
 
     var separator_length = separator_string.length;
 
+   if (separator_length === 0) {
+      if (length < 16 && length < limit) {
+        var ary = new GlobalArray(length);
+        for (var i = 0; i < length; i++) {
+          ary[i] = subject[i];
+        }
+        return ary;
+      }
+      return %StringToArray(subject, limit);
+    }
+
     // If the separator string is empty then return the elements in the subject.
-    if (separator_length === 0) return %StringToArray(subject, limit);
+//    if (separator_length === 0) return %StringToArray(subject, limit);
 
     var result = %StringSplit(subject, separator_string, limit);
 
