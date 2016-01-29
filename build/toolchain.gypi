@@ -933,7 +933,7 @@
         'target_conditions': [
           ['_toolset=="host"', {
             'conditions': [
-              ['host_cxx_is_biarch==1', {
+              ['host_cxx_is_biarch==1 and v8_target_arch!="arm"', {
                 'cflags': [ '-m32' ],
                 'ldflags': [ '-m32' ]
               }],
@@ -944,7 +944,7 @@
           }],
           ['_toolset=="target"', {
             'conditions': [
-              ['target_cxx_is_biarch==1 and nacl_target_arch!="nacl_x64"', {
+              ['target_cxx_is_biarch==1 and nacl_target_arch!="nacl_x64" and v8_target_arch!="arm"', {
                 'cflags': [ '-m32' ],
                 'ldflags': [ '-m32' ],
               }],
@@ -956,7 +956,7 @@
         ],
       }],
       ['(OS=="linux" or OS=="android") and \
-        (v8_target_arch=="x64" or v8_target_arch=="arm64" or \
+        (v8_target_arch=="x64" or (v8_target_arch=="arm64" and building_for_tizen!=1) or \
          v8_target_arch=="ppc64")', {
         'target_conditions': [
           ['_toolset=="host"', {
