@@ -7,16 +7,24 @@
     {
       'target_name': 'All',
       'type': 'none',
+      'variables': {
+        'enable_test%': 1,
+        'building_for_tizen%': 0,
+      },
       'dependencies': [
         '../samples/samples.gyp:*',
         '../src/d8.gyp:d8',
-        '../test/cctest/cctest.gyp:*',
-        '../test/unittests/unittests.gyp:*',
       ],
       'conditions': [
         ['component!="shared_library"', {
           'dependencies': [
             '../tools/parser-shell.gyp:parser-shell',
+          ],
+        }],
+        ['enable_test==1', {
+          'dependencies': [
+            '../test/cctest/cctest.gyp:*',
+            '../test/unittests/unittests.gyp:*',
           ],
         }],
       ]
