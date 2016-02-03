@@ -814,20 +814,6 @@ RUNTIME_FUNCTION(Runtime_GetOwnPropertyNamesFast) {
 #endif
 }
 
-
-// Find the length of the prototype chain that is to be handled as one. If a
-// prototype object is hidden it is to be viewed as part of the the object it
-// is prototype for.
-static int OwnPrototypeChainLength(JSObject* obj) {
-  int count = 1;
-  for (PrototypeIterator iter(obj->GetIsolate(), obj);
-       !iter.IsAtEnd(PrototypeIterator::END_AT_NON_HIDDEN); iter.Advance()) {
-    count++;
-  }
-  return count;
-}
-
-
 // Return the names of the own named properties.
 // args[0]: object
 // args[1]: PropertyAttributes as int

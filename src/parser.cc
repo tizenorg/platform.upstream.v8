@@ -4103,7 +4103,6 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
       forin_id_ = 0;
 #endif
 
-  int num_parameters = 0;
   // Function declarations are function scoped in normal mode, so they are
   // hoisted. In harmony block scoping mode they are block scoped, so they
   // are not hoisted.
