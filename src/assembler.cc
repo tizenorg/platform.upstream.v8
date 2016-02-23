@@ -1480,12 +1480,456 @@ double power_double_double(double x, double y) {
 }
 
 
+#ifdef SRUK_MATH_POW
+//
+// The following is adapted from fdlibm's (http://www.netlib.org/fdlibm)
+// implementation of the C pow function.
+//
+
+#ifdef __thumb__
+__attribute__((naked)) static double sruk_math_pow(double x, double y) {
+  asm(".fpu neon");
+  asm("push    {r4, r5, r6, r7, lr}");
+  asm("sub     sp, sp, #84");
+  asm("movs    r4, #0");
+  asm("movt    r4, 16448");
+  asm("strd    r2, [sp]");
+  asm("movs    r3, #0");
+  asm("strd    r0, [sp, #8]");
+  asm("movt    r3, 16864");
+  asm("ldr     r5, [sp, #12]");
+  asm("ldr     r6, [sp, #4]");
+  asm("bic     r2, r5, #-2147483648");
+  asm("bic     r6, r6, #-2147483648");
+  asm("cmp     r2, r3");
+  asm("it      le");
+  asm("cmple   r6, r4");
+  asm("ite     le");
+  asm("movle   r4, #0");
+  asm("movgt   r4, #1");
+  asm("bgt     .sruk_L41");
+  asm("movw    r7, #65535");
+  asm("movt    r7, 15887");
+  asm("cmp     r5, r7");
+  asm("ble     .sruk_L41");
+  asm("ubfx    r5, r5, #0, #20");
+  asm("movw    r7, #39054");
+  asm("movt    r7, 3");
+  asm("asrs    r2, r2, #20");
+  asm("cmp     r5, r7");
+  asm("orr     r3, r5, #1069547520");
+  asm("strd    r0, [sp, #16]");
+  asm("subw    ip, r2, #1023");
+  asm("orr     r1, r3, #3145728");
+  asm("it      le");
+  asm("movle   r0, r4");
+  asm("ble     .sruk_L44");
+  asm("movw    r3, #46713");
+  asm("movt    r3, 11");
+  asm("cmp     r5, r3");
+  asm("ittte   gt");
+  asm("subwgt  ip, r2, #1022");
+  asm("subgt   r1, r1, #1048576");
+  asm("movgt   r0, r4");
+  asm("movle   r4, #262144");
+  asm("it      le");
+  asm("movle   r0, #1");
+  asm(".sruk_L44:");
+  asm("ldr     r3, .sruk_L50+136");
+  asm("lsls    r0, r0, #3");
+  asm("str     r1, [sp, #20]");
+  asm("fconstd d5, #112");
+  asm(".sruk_LPIC2:");
+  asm("add     r3, pc");
+  asm("fldd    d25, [sp, #16]");
+  asm("add     r3, r3, r0");
+  asm("fldd    d27, [r3]");
+  asm("fldd    d3, .sruk_L50");
+  asm("fldd    d19, .sruk_L50+8");
+  asm("fldd    d26, .sruk_L50+16");
+  asm("asrs    r6, r1, #1");
+  asm("orr     r6, r6, #536870912");
+  asm("movs    r1, #0");
+  asm("add     r6, r6, #524288");
+  asm("movs    r2, #0");
+  asm("add     r4, r4, r6");
+  asm("movs    r3, #0");
+  asm("strd    r2, [sp, #32]");
+  asm("fldd    d24, .sruk_L50+24");
+  asm("str     r4, [sp, #36]");
+  asm("fldd    d22, .sruk_L50+32");
+  asm("faddd   d16, d25, d27");
+  asm("fldd    d4, [sp, #32]");
+  asm("fldd    d21, .sruk_L50+40");
+  asm("fldd    d6, .sruk_L50+48");
+  asm("fldd    d7, .sruk_L50+56");
+  asm("fldd    d31, .sruk_L50+64");
+  asm("ldr     r6, .sruk_L50+140");
+  asm("fldd    d20, [sp]");
+  asm("ldr     r5, .sruk_L50+144");
+  asm("fstd    d20, [sp, #64]");
+  asm(".sruk_LPIC3:");
+  asm("add     r6, pc");
+  asm("str     r1, [sp, #64]");
+  asm("add     r6, r6, r0");
+  asm("fldd    d30, [r6]");
+  asm(".sruk_LPIC4:");
+  asm("add     r5, pc");
+  asm("fldd    d28, [sp, #64]");
+  asm("add     r0, r0, r5");
+  asm("fldd    d29, [r0]");
+  asm("mov     r4, r1");
+  asm("movt    r4, 16352");
+  asm("fdivd   d5, d5, d16");
+  asm("fsubd   d23, d25, d27");
+  asm("fmuld   d18, d23, d5");
+  asm("fmuld   d16, d18, d18");
+  asm("fstd    d18, [sp, #24]");
+  asm("str     r1, [sp, #24]");
+  asm("fldd    d17, [sp, #24]");
+  asm("fmacd   d19, d16, d3");
+  asm("fmacd   d26, d19, d16");
+  asm("fnmacd  d23, d4, d17");
+  asm("fsubd   d27, d4, d27");
+  asm("fmacd   d24, d26, d16");
+  asm("fsubd   d25, d25, d27");
+  asm("fnmacd  d23, d25, d17");
+  asm("fmacd   d22, d24, d16");
+  asm("fmuld   d23, d23, d5");
+  asm("fmsr    s11, ip @ int");
+  asm("faddd   d19, d18, d17");
+  asm("fmacd   d21, d22, d16");
+  asm("fmuld   d19, d19, d23");
+  asm("fmuld   d16, d16, d16");
+  asm("fmuld   d24, d17, d17");
+  asm("fmacd   d19, d16, d21");
+  asm("fconstd d16, #8");
+  asm("faddd   d21, d24, d16");
+  asm("faddd   d21, d21, d19");
+  asm("fstd    d21, [sp, #32]");
+  asm("str     r1, [sp, #32]");
+  asm("fldd    d21, [sp, #32]");
+  asm("fsubd   d16, d21, d16");
+  asm("fsubd   d24, d16, d24");
+  asm("fsubd   d19, d19, d24");
+  asm("fmuld   d18, d19, d18");
+  asm("fmacd   d18, d23, d21");
+  asm("fmuld   d17, d17, d21");
+  asm("faddd   d16, d17, d18");
+  asm("fstd    d16, [sp, #40]");
+  asm("str     r1, [sp, #40]");
+  asm("fldd    d19, [sp, #40]");
+  asm("fsubd   d17, d19, d17");
+  asm("fsubd   d18, d18, d17");
+  asm("fmuld   d18, d18, d6");
+  asm("fmacd   d18, d19, d7");
+  asm("fmuld   d19, d19, d31");
+  asm("faddd   d18, d18, d30");
+  asm("faddd   d16, d19, d18");
+  asm("faddd   d16, d16, d29");
+  asm("fsitod  d22, s11");
+  asm("faddd   d16, d22, d16");
+  asm("fstd    d16, [sp, #56]");
+  asm("str     r1, [sp, #56]");
+  asm("fldd    d16, [sp, #56]");
+  asm("fsubd   d22, d16, d22");
+  asm("fsubd   d29, d22, d29");
+  asm("fsubd   d19, d29, d19");
+  asm("fsubd   d18, d18, d19");
+  asm("fmuld   d17, d18, d20");
+  asm("fsubd   d23, d20, d28");
+  asm("fmacd   d17, d16, d23");
+  asm("fmuld   d16, d16, d28");
+  asm("faddd   d18, d17, d16");
+  asm("fstd    d18, [sp, #72]");
+  asm("fcpyd   d28, d16");
+  asm("ldr     r0, [sp, #76]");
+  asm("bic     r5, r0, #-2147483648");
+  asm("cmp     r5, r4");
+  asm("ble     .sruk_L45");
+  asm("asrs    r5, r5, #20");
+  asm("mov     r4, #1048576");
+  asm("subw    r5, r5, #1022");
+  asm("strd    r2, [sp, #48]");
+  asm("asrs    r4, r4, r5");
+  asm("movw    r6, #65535");
+  asm("add     r4, r4, r0");
+  asm("movt    r6, 15");
+  asm("ubfx    r3, r4, #20, #11");
+  asm("ubfx    r1, r4, #0, #20");
+  asm("subw    r2, r3, #1023");
+  asm("orr     r1, r1, #1048576");
+  asm("asrs    r6, r6, r2");
+  asm("rsb     r3, r3, #1040");
+  asm("bic     r4, r4, r6");
+  asm("str     r4, [sp, #52]");
+  asm("fldd    d28, [sp, #48]");
+  asm("fsubd   d28, d16, d28");
+  asm("adds    r3, r3, #3");
+  asm("cmp     r0, #0");
+  asm("asr     r1, r1, r3");
+  asm("it      lt");
+  asm("rsblt   r1, r1, #0");
+  asm("lsls    r1, r1, #20");
+  asm("faddd   d18, d17, d28");
+  asm(".sruk_L45:");
+  asm("fstd    d18, [sp, #48]");
+  asm("movs    r2, #0");
+  asm("str     r2, [sp, #48]");
+  asm("fldd    d18, .sruk_L50+72");
+  asm("fldd    d16, [sp, #48]");
+  asm("fldd    d25, .sruk_L50+80");
+  asm("fldd    d23, .sruk_L50+88");
+  asm("fldd    d24, .sruk_L50+96");
+  asm("fldd    d22, .sruk_L50+104");
+  asm("fldd    d21, .sruk_L50+112");
+  asm("fldd    d20, .sruk_L50+120");
+  asm("fldd    d19, .sruk_L50+128");
+  asm("fsubd   d28, d16, d28");
+  asm("fmuld   d18, d16, d18");
+  asm("fsubd   d17, d17, d28");
+  asm("fmacd   d18, d17, d25");
+  asm("fmuld   d23, d16, d23");
+  asm("faddd   d16, d23, d18");
+  asm("fmuld   d17, d16, d16");
+  asm("fmscd   d22, d17, d24");
+  asm("fmacd   d21, d17, d22");
+  asm("fmscd   d20, d17, d21");
+  asm("fmacd   d19, d17, d20");
+  asm("fcpyd   d20, d16");
+  asm("fnmacd  d20, d17, d19");
+  asm("fcpyd   d19, d20");
+  asm("fconstd d20, #0");
+  asm("fmuld   d17, d16, d19");
+  asm("fsubd   d19, d19, d20");
+  asm("fdivd   d19, d17, d19");
+  asm("fsubd   d17, d16, d23");
+  asm("fsubd   d17, d18, d17");
+  asm("fmacd   d17, d16, d17");
+  asm("fsubd   d17, d19, d17");
+  asm("fconstd d18, #112");
+  asm("fsubd   d16, d17, d16");
+  asm("fsubd   d16, d18, d16");
+  asm("fstd    d16, [sp, #72]");
+  asm("ldr     r3, [sp, #76]");
+  asm("add     r3, r3, r1");
+  asm("str     r3, [sp, #76]");
+  asm("ldrd    r0, [sp, #72]");
+  asm("add     sp, sp, #84");
+  asm("pop     {r4, r5, r6, r7, pc}");
+  asm(".sruk_L41:");
+  asm("ldrd    r0, [sp, #8]");
+  asm("ldrd    r2, [sp]");
+  asm("bl      _ZN2v88internal19power_double_doubleEdd(PLT)");
+  asm("add     sp, sp, #84");
+  asm("pop     {r4, r5, r6, r7, pc}");
+
+  asm(".align  3");
+  asm(".sruk_L50:");
+  asm(".word   1246056175");
+  asm(".word   1070235176");
+  asm(".word   2479479653");
+  asm(".word   1070433866");
+  asm(".word   2837266689");
+  asm(".word   1070691424");
+  asm(".word   1368335949");
+  asm(".word   1070945621");
+  asm(".word   3681528831");
+  asm(".word   1071345078");
+  asm(".word   858993411");
+  asm(".word   1071854387");
+  asm(".word   3694789629");
+  asm(".word   1072613129");
+  asm(".word   341508597");
+  asm(".word   -1103220768");
+  asm(".word   3758096384");
+  asm(".word   1072613129");
+  asm(".word   212364345");
+  asm(".word   -1105175455");
+  asm(".word   4277811695");
+  asm(".word   1072049730");
+  asm(".word   0");
+  asm(".word   1072049731");
+  asm(".word   1925096656");
+  asm(".word   1046886249");
+  asm(".word   3318901745");
+  asm(".word   1052491073");
+  asm(".word   2938494508");
+  asm(".word   1058100842");
+  asm(".word   381599123");
+  asm(".word   1063698796");
+  asm(".word   1431655742");
+  asm(".word   1069897045");
+  asm(".word   .sruk_LANCHOR0-(.sruk_LPIC2+4)");
+  asm(".word   .sruk_LANCHOR1-(.sruk_LPIC3+4)");
+  asm(".word   .sruk_LANCHOR2-(.sruk_LPIC4+4)");
+
+  asm(".align  3");
+  asm(".sruk_LANCHOR0 = . + 0");
+  asm(".word   0");
+  asm(".word   1072693248");
+  asm(".word   0");
+  asm(".word   1073217536");
+  asm(".sruk_LANCHOR1 = . + 0");
+  asm(".word   0");
+  asm(".word   0");
+  asm(".word   1137692678");
+  asm(".word   1045233131");
+  asm(".sruk_LANCHOR2 = . + 0");
+  asm(".word   0");
+  asm(".word   0");
+  asm(".word   1073741824");
+  asm(".word   1071822851");
+}
+#else
+
+#define HI(x) *(1 + reinterpret_cast<int*>(&x))
+#define LO(x) *reinterpret_cast<int*>(&x)
+
+static const double bp[] = {1.0, 1.5};
+static const double dp_h[] = {0.0, 5.84962487220764160156e-01};
+static const double dp_l[] = {0.0, 1.35003920212974897128e-08};
+static const double L1 =  5.99999999999994648725e-01;
+static const double L2 =  4.28571428578550184252e-01;
+static const double L3 =  3.33333329818377432918e-01;
+static const double L4 =  2.72728123808534006489e-01;
+static const double L5 =  2.30660745775561754067e-01;
+static const double L6 =  2.06975017800338417784e-01;
+static const double P1 =  1.66666666666666019037e-01;
+static const double P2 = -2.77777777770155933842e-03;
+static const double P3 =  6.61375632143793436117e-05;
+static const double P4 = -1.65339022054652515390e-06;
+static const double P5 =  4.13813679705723846039e-08;
+static const double lg2 = 6.93147180559945286227e-01;
+static const double lg2_h = 6.93147182464599609375e-01;
+static const double lg2_l = -1.90465429995776804525e-09;
+static const double cp_ = 9.61796693925975554329e-01;
+static const double cp_h = 9.61796700954437255859e-01;
+static const double cp_l = -7.02846165095275826516e-09;
+
+// Returns Math.pow(x, y). This function is called by MathPowStub when y isn't
+// an integer (or when it is an integer but doesn't fit in an 'int').
+static double sruk_math_pow(double x, double y) {
+  DCHECK(static_cast<int>(y) != y);
+
+  int hx = HI(x);
+  int hy = HI(y);
+
+  int ix = hx & 0x7fffffff;
+  int iy = hy & 0x7fffffff;
+
+  // Avoid complicated cases (underflow, overflow and subnormal values).
+  if (iy > 0x40400000 ||  // |y| > 32 or y is NaN.
+      ix > 0x41e00000 ||  // |x| > (2 ^ 31) or x is NaN.
+      hx < 0x3e100000) {  // x < 1 / (2 ^ 30).
+    return power_double_double(x, y);
+  }
+
+  DCHECK(static_cast<long long>(y) != y);
+
+  //
+  // The rest is fdlibm's algorithm, but we have removed the handling of
+  // complicated cases (see above).
+  //
+
+  double ax = x;
+
+  int n = ((ix) >> 20) - 0x3ff;
+  int j = ix & 0x000fffff;
+  ix = j | 0x3ff00000;
+  int k;
+  if (j <= 0x3988e) {
+    k = 0;
+  } else if (j < 0xbb67a) {
+    k = 1;
+  } else {
+    k = 0;
+    n += 1;
+    ix -= 0x00100000;
+  }
+  HI(ax) = ix;
+
+  double u = ax - bp[k];
+  double v = 1.0 / (ax + bp[k]);
+  double ss = u * v;
+  double s_h = ss;
+  LO(s_h) = 0;
+  double t_h = 0.0;
+  HI(t_h) = ((ix >> 1) | 0x20000000) + 0x00080000 + (k << 18);
+  double t_l = ax - (t_h - bp[k]);
+  double s_l = v * ((u - s_h * t_h) - s_h * t_l);
+  double s2 = ss * ss;
+  double r = s2 * s2 * (L1 + s2 * (L2 +s2 * (L3 + s2 * (L4 + s2 * (L5 + s2 * L6)))));
+  r += s_l * (s_h + ss);
+  s2  = s_h * s_h;
+  t_h = 3.0 + s2 + r;
+  LO(t_h) = 0;
+  t_l = r - ((t_h - 3.0) - s2);
+  u = s_h * t_h;
+  v = s_l * t_h + t_l * ss;
+  double p_h = u + v;
+  LO(p_h) = 0;
+  double p_l = v - (p_h - u);
+  double z_h = cp_h * p_h;
+  double z_l = cp_l * p_h + p_l * cp_ + dp_l[k];
+  double t = static_cast<double>(n);
+  double t1 = (((z_h + z_l) + dp_h[k]) + t);
+  LO(t1) = 0;
+  double t2 = z_l - (((t1 - t) - dp_h[k]) - z_h);
+
+  double y1 = y;
+  LO(y1) = 0;
+  p_l = (y - y1) * t1 + y * t2;
+  p_h = y1 * t1;
+  double z = p_l + p_h;
+  j = HI(z);
+
+  int i = j & 0x7fffffff;
+  k = (i >> 20) - 0x3ff;
+  n = 0;
+  if (i > 0x3fe00000) {
+    n = j + (0x00100000 >> (k + 1));
+    k = ((n & 0x7fffffff) >> 20) - 0x3ff;
+    t = 0.0;
+    HI(t) = (n & ~(0x000fffff >> k));
+    n = ((n & 0x000fffff) | 0x00100000) >> (20 - k);
+    if (j < 0)
+      n = -n;
+    p_h -= t;
+  }
+  t = p_l + p_h;
+  LO(t) = 0;
+  u = t * lg2_h;
+  v = (p_l - (t - p_h)) * lg2 + t * lg2_l;
+  z = u + v;
+  double w = v - (z - u);
+  t  = z * z;
+  t1 = z - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+  r = (z * t1) / (t1 - 2.0) - (w + z * w);
+  z = 1.0 - (r - z);
+  HI(z) += (n << 20);
+  return z;
+}
+#endif
+#endif
+
+
 ExternalReference ExternalReference::power_double_double_function(
     Isolate* isolate) {
   return ExternalReference(Redirect(isolate,
                                     FUNCTION_ADDR(power_double_double),
                                     BUILTIN_FP_FP_CALL));
 }
+
+
+#ifdef SRUK_MATH_POW
+ExternalReference ExternalReference::power_double_double_function_2(
+    Isolate* isolate) {
+  return ExternalReference(Redirect(isolate,
+                                    FUNCTION_ADDR(sruk_math_pow),
+                                    BUILTIN_FP_FP_CALL));
+}
+#endif
 
 
 ExternalReference ExternalReference::power_double_int_function(

@@ -78,6 +78,7 @@
     'sruk_eval_cache': 'true',
     'sruk_for_in_loop': 'true',
     'sruk_remove_math_const_array': 'true',    # js files
+    'sruk_math_pow': 'true',
 
   },
   'target_defaults': {
@@ -141,6 +142,9 @@
       }],
       [ 'v8_target_arch=="arm" and sruk_remove_math_const_array=="true"', {
         'defines': ['SRUK_REMOVE_MATH_CONST_ARRAY',],
+      }],
+      [ 'v8_target_arch=="arm" and sruk_math_pow=="true"', {
+        'defines': ['SRUK_MATH_POW',],
       }],
 
     ],  # conditions

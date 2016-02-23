@@ -88,6 +88,10 @@ ExternalReferenceTable::ExternalReferenceTable(Isolate* isolate) {
       "LDoubleConstant::negative_infinity");
   Add(ExternalReference::power_double_double_function(isolate).address(),
       "power_double_double_function");
+#ifdef SRUK_MATH_POW
+  Add(ExternalReference::power_double_double_function_2(isolate).address(),
+      "power_double_double_function_2");
+#endif
   Add(ExternalReference::power_double_int_function(isolate).address(),
       "power_double_int_function");
   Add(ExternalReference::math_log_double_function(isolate).address(),

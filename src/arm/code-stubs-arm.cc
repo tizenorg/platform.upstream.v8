@@ -790,10 +790,18 @@ void MathPowStub::Generate(MacroAssembler* masm) {
   if (exponent_type() != INTEGER) {
     Label int_exponent_convert;
     // Detect integer exponents stored as double.
+#ifdef SRUK_MATH_POW
+    __ vcvt_s32_f64(single_scratch, double_exponent);
+#else
     __ vcvt_u32_f64(single_scratch, double_exponent);
+#endif
     // We do not check for NaN or Infinity here because comparing numbers on
     // ARM correctly distinguishes NaNs.  We end up calling the built-in.
+#ifdef SRUK_MATH_POW
+    __ vcvt_f64_s32(double_scratch, single_scratch);
+#else
     __ vcvt_f64_u32(double_scratch, single_scratch);
+#endif
     __ VFPCompareAndSetFlags(double_scratch, double_exponent);
     __ b(eq, &int_exponent_convert);
 
@@ -845,16 +853,26 @@ void MathPowStub::Generate(MacroAssembler* masm) {
       AllowExternalCallThatCantCauseGC scope(masm);
       __ PrepareCallCFunction(0, 2, scratch);
       __ MovToFloatParameters(double_base, double_exponent);
+#ifdef SRUK_MATH_POW
+      __ CallCFunction(
+          ExternalReference::power_double_double_function_2(isolate()),
+          0, 2);
+#else
       __ CallCFunction(
           ExternalReference::power_double_double_function(isolate()),
           0, 2);
+#endif
     }
     __ pop(lr);
     __ MovFromFloatResult(double_result);
     __ jmp(&done);
 
     __ bind(&int_exponent_convert);
+#ifdef SRUK_MATH_POW
+    __ vcvt_s32_f64(single_scratch, double_exponent);
+#else
     __ vcvt_u32_f64(single_scratch, double_exponent);
+#endif
     __ vmov(scratch, single_scratch);
   }
 
