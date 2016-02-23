@@ -410,17 +410,17 @@ function ArrayToLocaleString() {
 
 
 function InnerArrayJoin(separator, array, length) {
-  if (IS_UNDEFINED(separator)) {
-    separator = ',';
-  } else {
-    separator = TO_STRING(separator);
-  }
 
   // Fast case for one-element arrays.
   if (length === 1) {
     var e = array[0];
     if (IS_NULL_OR_UNDEFINED(e)) return '';
     return TO_STRING(e);
+  }
+  if (IS_UNDEFINED(separator)) {
+    separator = ',';
+  } else {
+    separator = TO_STRING(separator);
   }
 
   var result = %_FastOneByteArrayJoin(array, separator);
