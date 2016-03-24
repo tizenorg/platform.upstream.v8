@@ -69,8 +69,8 @@
     'v8_wasm%': 0,
 
     # SRUK performance patches
-    'sruk_json_cache': 'true',
-    'sruk_inline_tuning': 'true',
+    'sruk_json_cache': 'false',
+    'sruk_inline_tuning': 'false',
     # Enable/disable JavaScript API accessors.
     'v8_js_accessors%': 0,
 
