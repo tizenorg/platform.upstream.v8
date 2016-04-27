@@ -182,6 +182,9 @@ class Time final {
   // Returns true if the time object is the maximum time.
   bool IsMax() const { return us_ == std::numeric_limits<int64_t>::max(); }
 
+  // Sets time offset
+  static void SetTimeOffset(double time_offset);
+
   // Returns the current time. Watch out, the system might adjust its clock
   // in which case time will actually go backwards. We don't guarantee that
   // times are increasing, or that two calls to Now() won't be the same.

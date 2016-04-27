@@ -25,6 +25,10 @@
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
 
+namespace {
+double time_offset_ = 0.0;
+}  // namespace
+
 namespace v8 {
 namespace base {
 
@@ -142,6 +146,7 @@ struct timespec TimeDelta::ToTimespec() const {
 
 #endif  // V8_OS_POSIX
 
+void Time::SetTimeOffset(double time_offset) { time_offset_ = time_offset; }
 
 #if V8_OS_WIN
 
@@ -257,6 +262,7 @@ Time Time::Now() {
   int result = gettimeofday(&tv, NULL);
   DCHECK_EQ(0, result);
   USE(result);
+  tv.tv_sec += static_cast<time_t>(time_offset_ / 1000);
   return FromTimeval(tv);
 }
 
