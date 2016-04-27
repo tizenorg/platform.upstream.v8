@@ -3871,6 +3871,11 @@ class V8_EXPORT Date : public Object {
    */
   static void DateTimeConfigurationChangeNotification(Isolate* isolate);
 
+  /**
+   * Sets time offset for Date object
+   */
+  static void SetTimeOffset(double time_offset);
+
  private:
   static void CheckCast(v8::Value* obj);
 };

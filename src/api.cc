@@ -5946,6 +5946,10 @@ Local<v8::Symbol> v8::SymbolObject::ValueOf() const {
       i::Handle<i::Symbol>(i::Symbol::cast(jsvalue->value())));
 }
 
+// Static
+void v8::Date::SetTimeOffset(double time_offset) {
+  base::Time::SetTimeOffset(time_offset);
+}
 
 MaybeLocal<v8::Value> v8::Date::New(Local<Context> context, double time) {
   if (std::isnan(time)) {
