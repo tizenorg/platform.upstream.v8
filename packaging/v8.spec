@@ -78,6 +78,7 @@ if [ ! -d %{buildroot}/../../OTHER/ -a -f /opt/testing/bin/rpmlint ]; then
   mkdir -p %{buildroot}/../../OTHER/
 fi
 
+git config --global http.sslVerify false
 git submodule update --init
 pushd build/gyp; git reset --hard 08429da7; popd;
 
