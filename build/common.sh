@@ -77,6 +77,16 @@ function setupAndExecuteTargetBuild() {
         count=$(( $count + 1 ))
         ARGS[$count]="_enable_test 1"
     ;;
+    --skip-module)
+        ARGS[$count]=--define
+        count=$(( $count + 1 ))
+        ARGS[$count]="_skip_module 1"
+    ;;
+    --hq-proxy)
+        ARGS[$count]=--define
+        count=$(( $count + 1 ))
+        ARGS[$count]="_hq_proxy 1"
+    ;;
     *)
       ARGS[$count]="$1"
     ;;
