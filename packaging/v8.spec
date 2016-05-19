@@ -3,7 +3,7 @@ Summary:       This is v8 library.
 Version:       4.7.83
 Release:       0
 Group:         Web Framework/Web Engine
-License:       LGPL-2.1 or BSD-2-Clause
+License:       BSD-3-Clause
 Source0:       %{name}-%{version}.tar.gz
 Source1:       v8.manifest
 
@@ -142,9 +142,9 @@ install -d %{buildroot}%{_libdir}/pkgconfig
 install -d %{buildroot}%{_libdir}/v8
 install -d %{buildroot}%{_includedir}/v8/include
 install -d %{buildroot}%{_includedir}/v8/include/libplatform
-install -m 0755 ./out/Release/*.a %{buildroot}%{_libdir}/v8
-install -m 0755 ./out/Release/natives_blob.bin %{buildroot}%{_libdir}/v8
-install -m 0755 ./out/Release/snapshot_blob.bin %{buildroot}%{_libdir}/v8
+install -m 0755 %{OUTPUT_FOLDER}/*.a %{buildroot}%{_libdir}/v8
+install -m 0755 %{OUTPUT_FOLDER}/natives_blob.bin %{buildroot}%{_libdir}/v8
+install -m 0755 %{OUTPUT_FOLDER}/snapshot_blob.bin %{buildroot}%{_libdir}/v8
 install -m 0644 ./packaging/v8.pc %{buildroot}%{_libdir}/pkgconfig/
 install -m 0644 ./include/*.h %{buildroot}%{_includedir}/v8/include
 install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/libplatform
