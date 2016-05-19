@@ -1,4 +1,4 @@
-V8 JavaScript Engine
+V8 JavaScript Engine.
 =============
 
 V8 is Google's open source JavaScript engine.
