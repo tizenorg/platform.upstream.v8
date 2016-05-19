@@ -40,7 +40,7 @@ Source1:       v8.manifest
 %define chromium_efl_tizen_profile ivi
 %endif
 
-BuildRequires: python, python-xml, git
+BuildRequires: python, python-xml, git, curl
 %ifarch armv7l
 BuildRequires: python-accel-armv7l-cross-arm
 %endif
@@ -78,8 +78,13 @@ if [ ! -d %{buildroot}/../../OTHER/ -a -f /opt/testing/bin/rpmlint ]; then
   mkdir -p %{buildroot}/../../OTHER/
 fi
 
-git submodule update --init
-pushd build/gyp; git reset --hard 08429da7; popd;
+%if "%{?_hq_proxy}" == "1"
+build/set_hq_proxy.sh
+%endif
+
+%if "%{?_skip_module}" != "1"
+build/get_third_party_modules.sh
+%endif
 
 %ifarch aarhc64
   export ADDITION_OPTION=" -finline-limit=64 -foptimize-sibling-calls -fno-unwind-tables -fno-exceptions -Os"
