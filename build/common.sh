@@ -95,7 +95,7 @@ function gbsBuildWithout500Error() {
   # So, temporal file is used to share build status between outer and inner while scope.
   while
     echo "0" > $SCRIPTDIR/build_result.txt
-    gbs $CONF_FLAG build -P $PROFILE --spec v8.spec --include-all -A $ARCHITECTURE "${ARGS[@]}" $BUILD_CONF_OPTS --incremental | \
+    gbs $CONF_FLAG build -P $PROFILE --spec v8.spec --include-all -A $ARCHITECTURE "${ARGS[@]}" $BUILD_CONF_OPTS | \
     while read LINE; do
       echo -e "$LINE"
       if [ "`echo "$LINE" | grep "read timeout"`" != "" ]; then

@@ -5,7 +5,6 @@ Release:       0
 Group:         Web Framework/Web Engine
 License:       BSD-3-Clause
 Source0:       %{name}-%{version}.tar.gz
-Source1:       v8.manifest
 
 # Conditions for OBS build
 # The OBS build does not support running script 'build_{target}.sh'.
@@ -110,6 +109,8 @@ export GYP_GENERATOR_FLAGS="output_dir=${GYP_GENERATOR_OUTPUT}"
 %global OUTPUT_FOLDER %{OUTPUT_BASE_FOLDER}/Release
 %endif
 
+chmod 775 ./build/gyp_v8.sh
+chmod 775 ./tools/clang/scripts/update.sh
 ./build/gyp_v8.sh \
 %if %{!?_enable_test:0}%{?_enable_test:1}
     -Denable_test=1
@@ -118,11 +119,14 @@ export GYP_GENERATOR_FLAGS="output_dir=${GYP_GENERATOR_OUTPUT}"
 %endif
 
 %ifarch %{arm}
+chmod 775 ./build/prebuild/ninja/ninja.arm
 ./build/prebuild/ninja/ninja.arm %{?_smp_mflags} -C%{OUTPUT_FOLDER}
 %else
 %ifarch aarch64
+chmod 775 ./build/prebuild/ninja/ninja.arm64
 ./build/prebuild/ninja/ninja.arm64 %{?_smp_mflags} -C%{OUTPUT_FOLDER}
 %else
+chmod 775 ./build/prebuild/ninja/ninja
 ./build/prebuild/ninja/ninja %{?_smp_mflags} -C%{OUTPUT_FOLDER}
 %endif
 %endif
@@ -135,7 +139,7 @@ install -d %{buildroot}%{_includedir}/v8/include/libplatform
 install -m 0755 %{OUTPUT_FOLDER}/*.a %{buildroot}%{_libdir}/v8
 install -m 0755 %{OUTPUT_FOLDER}/natives_blob.bin %{buildroot}%{_libdir}/v8
 install -m 0755 %{OUTPUT_FOLDER}/snapshot_blob.bin %{buildroot}%{_libdir}/v8
-install -m 0644 ./packaging/v8.pc %{buildroot}%{_libdir}/pkgconfig/
+install -m 0644 ./build/pkgconfig/v8.pc %{buildroot}%{_libdir}/pkgconfig/
 install -m 0644 ./include/*.h %{buildroot}%{_includedir}/v8/include
 install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/libplatform
 
@@ -144,13 +148,13 @@ install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/
 %postun -p /sbin/ldconfig
 
 %files
-%manifest packaging/v8.manifest
+%manifest ./build/manifest/v8.manifest
 %{_libdir}/v8/libv8*.a
 %{_libdir}/v8/natives_blob.bin
 %{_libdir}/v8/snapshot_blob.bin
 
 %files devel
-%manifest packaging/v8.manifest
+%manifest ./build/manifest/v8.manifest
 %{_libdir}/v8/libv8*.a
 %{_libdir}/v8/natives_blob.bin
 %{_libdir}/v8/snapshot_blob.bin
