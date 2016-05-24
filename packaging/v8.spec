@@ -118,18 +118,11 @@ chmod 775 ./tools/clang/scripts/update.sh
     -Denable_test=0
 %endif
 
-%ifarch %{arm}
-chmod 775 ./build/prebuild/ninja/ninja.arm
-./build/prebuild/ninja/ninja.arm %{?_smp_mflags} -C%{OUTPUT_FOLDER}
-%else
-%ifarch aarch64
-chmod 775 ./build/prebuild/ninja/ninja.arm64
-./build/prebuild/ninja/ninja.arm64 %{?_smp_mflags} -C%{OUTPUT_FOLDER}
-%else
 chmod 775 ./build/prebuild/ninja/ninja
+chmod 775 ./build/prebuild/ninja/ninja-arm32
+chmod 775 ./build/prebuild/ninja/ninja-linux32
+chmod 775 ./build/prebuild/ninja/ninja-linux64
 ./build/prebuild/ninja/ninja %{?_smp_mflags} -C%{OUTPUT_FOLDER}
-%endif
-%endif
 
 %install
 install -d %{buildroot}%{_libdir}/pkgconfig
