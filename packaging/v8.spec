@@ -40,7 +40,7 @@ Source1:       v8.manifest
 %define chromium_efl_tizen_profile ivi
 %endif
 
-BuildRequires: python, python-xml, git
+BuildRequires: python, python-xml
 %ifarch armv7l
 BuildRequires: python-accel-armv7l-cross-arm
 %endif

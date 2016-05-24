@@ -93,3 +93,5 @@ turbo*.cfg
 turbo*.dot
 turbo*.json
 build_result.txt
+*.list
+out.*
