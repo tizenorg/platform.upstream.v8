@@ -45,13 +45,9 @@ BuildRequires: python-accel-armv7l-cross-arm
 %endif
 %ifarch aarch64
 BuildRequires: python-accel-aarch64-cross-aarch64
-# TODO(youngsoo): The binutils-gold crashes mini_browser on the Tizen v3.0 ARM 64 bit images.
-#                 Once fixed, use binutils-gold for all targets on Tizen v3.0.
-%if "%{chromium_efl_tizen_version}" == "3.0"
-BuildRequires: binutils-gold
-%endif
 %endif
 
+BuildRequires: binutils-gold
 BuildRequires: pkgconfig(icu-i18n)
 
 Requires(post): /sbin/ldconfig
