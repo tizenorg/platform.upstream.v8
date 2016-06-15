@@ -128,7 +128,11 @@ install -d %{buildroot}%{_includedir}/v8/include/libplatform
 install -m 0755 %{OUTPUT_FOLDER}/*.a %{buildroot}%{_libdir}/v8
 install -m 0755 %{OUTPUT_FOLDER}/natives_blob.bin %{buildroot}%{_libdir}/v8
 install -m 0755 %{OUTPUT_FOLDER}/snapshot_blob.bin %{buildroot}%{_libdir}/v8
-install -m 0644 ./build/pkgconfig/v8.pc %{buildroot}%{_libdir}/pkgconfig/
+
+#make and install the pkgconfig file
+sed -e "s#?LIBDIR?#%{_libdir}/v8#" ./build/pkgconfig/v8.pc.in > ./build/pkgconfig/v8.pc
+install -m 0644 ./build/pkgconfig/v8.pc %{buildroot}%{_libdir}/pkgconfig
+
 install -m 0644 ./include/*.h %{buildroot}%{_includedir}/v8/include
 install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/libplatform
 
