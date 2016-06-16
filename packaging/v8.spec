@@ -73,7 +73,7 @@ if [ ! -d %{buildroot}/../../OTHER/ -a -f /opt/testing/bin/rpmlint ]; then
   mkdir -p %{buildroot}/../../OTHER/
 fi
 
-%ifarch aarhc64
+%ifarch aarch64
   export ADDITION_OPTION=" -finline-limit=64 -foptimize-sibling-calls -fno-unwind-tables -fno-exceptions -Os"
 %endif
 %ifarch %{arm}
