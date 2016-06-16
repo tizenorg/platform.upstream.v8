@@ -7,5 +7,5 @@ Name: chromium-efl
 Description: This is v8 library
 Version: 4.7.83
 
-Libs: -L${libdir} ${libdir}/libv8_base.a ${libdir}/libv8_external_snapshot.a ${libdir}/libv8_libbase.a ${libdir}/libv8_libplatform.a ${libdir}/libv8_nosnapshot.a
+Libs: -L${libdir} -lv8
 Cflags: -I${includedir}/v8/include
