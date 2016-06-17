@@ -3,7 +3,7 @@ exec_prefix=${prefix}
 libdir=?LIBDIR?
 includedir=${prefix}/include
 
-Name: chromium-efl
+Name: v8
 Description: This is v8 library
 Version: 4.7.83
 

@@ -148,7 +148,6 @@ install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/
 
 %files devel
 %manifest ./build/manifest/v8.manifest
-%{_libdir}/libv8.so
 %{_libdir}/v8/natives_blob.bin
 %{_libdir}/v8/snapshot_blob.bin
 %{_libdir}/pkgconfig/v8.pc
