@@ -104,6 +104,8 @@ export GYP_GENERATOR_FLAGS="output_dir=${GYP_GENERATOR_OUTPUT}"
 %else
 %global OUTPUT_FOLDER %{OUTPUT_BASE_FOLDER}/Release
 %endif
+%global V8_INCLUDE %{_includedir}/chromium/v8
+%global V8_LIB %{_libdir}/chromium/v8
 
 chmod 775 ./build/gyp_v8.sh
 chmod 775 ./tools/clang/scripts/update.sh
@@ -123,18 +125,19 @@ chmod 775 ./build/prebuild/ninja/ninja-linux64
 %install
 install -d %{buildroot}%{_libdir}/pkgconfig
 install -d %{buildroot}%{_libdir}/v8
-install -d %{buildroot}%{_includedir}/v8/include
-install -d %{buildroot}%{_includedir}/v8/include/libplatform
-install -m 0755 %{OUTPUT_FOLDER}/lib/libv8.so %{buildroot}%{_libdir}
-install -m 0755 %{OUTPUT_FOLDER}/natives_blob.bin %{buildroot}%{_libdir}/v8
-install -m 0755 %{OUTPUT_FOLDER}/snapshot_blob.bin %{buildroot}%{_libdir}/v8
-
+install -d %{buildroot}%{V8_LIB}
+install -d %{buildroot}%{V8_INCLUDE}
+install -d %{buildroot}%{V8_INCLUDE}/libplatform
 #make and install the pkgconfig file
-sed -e "s#?LIBDIR?#%{_libdir}#" ./build/pkgconfig/v8.pc.in > ./build/pkgconfig/v8.pc
-install -m 0644 ./build/pkgconfig/v8.pc %{buildroot}%{_libdir}/pkgconfig
-
-install -m 0644 ./include/*.h %{buildroot}%{_includedir}/v8/include
-install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/libplatform
+sed -e "s#@LIBDIR@#%{V8_LIB}#; s#@INCLUDEDIR@#%{V8_INCLUDE}#" \
+    ./build/pkgconfig/v8.pc.in > ./build/pkgconfig/v8.pc
+install -m 0644 ./build/pkgconfig/v8.pc                  %{buildroot}%{_libdir}/pkgconfig
+install -m 0755 %{OUTPUT_FOLDER}/lib/libv8.so.%{version} %{buildroot}%{V8_LIB}
+install -m 0755 %{OUTPUT_FOLDER}/natives_blob.bin        %{buildroot}%{_libdir}/v8
+install -m 0755 %{OUTPUT_FOLDER}/snapshot_blob.bin       %{buildroot}%{_libdir}/v8
+install -m 0644 ./include/*.h                            %{buildroot}%{V8_INCLUDE}
+install -m 0644 ./include/libplatform/*.h                %{buildroot}%{V8_INCLUDE}/libplatform
+ln -sf %{V8_LIB}/libv8.so.%{version}                     %{buildroot}%{V8_LIB}/libv8.so
 
 %post -p /sbin/ldconfig
 
@@ -142,13 +145,16 @@ install -m 0644 ./include/libplatform/*.h %{buildroot}%{_includedir}/v8/include/
 
 %files
 %manifest ./build/manifest/v8.manifest
-%{_libdir}/libv8.so
+%{V8_LIB}/libv8.so.%{version}
+%{V8_LIB}/libv8.so
 %{_libdir}/v8/natives_blob.bin
 %{_libdir}/v8/snapshot_blob.bin
 
 %files devel
 %manifest ./build/manifest/v8.manifest
+%{V8_INCLUDE}
+%{V8_LIB}/libv8.so.%{version}
+%{V8_LIB}/libv8.so
 %{_libdir}/v8/natives_blob.bin
 %{_libdir}/v8/snapshot_blob.bin
 %{_libdir}/pkgconfig/v8.pc
-%{_includedir}/v8/include
