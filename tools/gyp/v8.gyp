@@ -147,6 +147,9 @@
       'target_name': 'v8_snapshot',
       'type': 'static_library',
       'conditions': [
+        ['static==1', {
+          'standalone_static_library': 1,
+        }],
         ['want_separate_host_toolset==1', {
           'toolsets': ['host', 'target'],
           'dependencies': [
@@ -238,6 +241,9 @@
         '../../src/snapshot/snapshot-empty.cc',
       ],
       'conditions': [
+        ['static==1', {
+          'standalone_static_library': 1,
+        }],
         ['want_separate_host_toolset==1', {
           'toolsets': ['host', 'target'],
           'dependencies': ['js2c#host'],
@@ -259,6 +265,9 @@
       'conditions': [
         [ 'v8_use_external_startup_data==1', {
           'conditions': [
+            ['static==1', {
+              'standalone_static_library': 1,
+            }],
             ['want_separate_host_toolset==1', {
               'toolsets': ['host', 'target'],
               'dependencies': [
@@ -1033,6 +1042,9 @@
         '../../src/third_party/fdlibm/fdlibm.h',
       ],
       'conditions': [
+        ['static==1', {
+          'standalone_static_library': 1,
+        }],
         ['want_separate_host_toolset==1', {
           'toolsets': ['host', 'target'],
         }, {
@@ -1498,6 +1510,9 @@
         '../../src/base/utils/random-number-generator.h',
       ],
       'conditions': [
+        ['static==1', {
+          'standalone_static_library': 1,
+        }],
         ['want_separate_host_toolset==1', {
           'toolsets': ['host', 'target'],
         }, {
@@ -1721,6 +1736,9 @@
         '../../src/libplatform/worker-thread.h',
       ],
       'conditions': [
+        ['static==1', {
+          'standalone_static_library': 1,
+        }],
         ['want_separate_host_toolset==1', {
           'toolsets': ['host', 'target'],
         }, {

@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: v8
+Description: This is v8 library
+Version: 4.7.83
+
+Libs: -L${libdir} -lv8 -Wl,-rpath=${libdir}
+Cflags: -I${includedir} -I${includedir}/..
